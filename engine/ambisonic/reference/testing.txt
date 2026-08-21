@@ -1,0 +1,206 @@
+
+
+func GetSphericalHarmonicsGood(order int, nx, ny, nz, gain float32, weights []float32) {
+if order < 0 {
+order = 0
+}
+if order > 5 {
+order = 5
+}
+
+// number of coefficients required by order (clamped by weights length)
+numCoefs := (order + 1) * (order + 1)
+if numCoefs > len(weights) {
+numCoefs = len(weights)
+}
+// helper to set weights immediately (scaled by gain)
+set := func(i int, v float32) {
+if i < numCoefs {
+weights[i] = v * gain
+}
+}
+
+fX := nx
+fY := ny
+fZ := nz
+fZ2 := fZ * fZ
+
+// small buffer to store raw pSH values needed by recurrences
+var p [36]float32
+
+// pSH[0]
+p[0] = 0.2820947917738781
+set(0, p[0])
+
+// pSH[2]
+p[2] = 0.4886025119029199 * fZ
+set(2, p[2])
+
+// pSH[6]
+p[6] = 0.9461746957575601*fZ2 + -0.31539156525252
+set(6, p[6])
+
+// pSH[12]
+p[12] = fZ * (1.865881662950577*fZ2 + -1.119528997770346)
+set(12, p[12])
+
+// pSH[20] = 1.984313483298443f * fZ * pSH[12] + -1.006230589874905f * pSH[6];
+p[20] = 1.984313483298443*fZ*p[12] + -1.006230589874905*p[6]
+set(20, p[20])
+
+// pSH[30] = 1.98997487421324f * fZ * pSH[20] + -1.002853072844814f * pSH[12];
+p[30] = 1.98997487421324*fZ*p[20] + -1.002853072844814*p[12]
+set(30, p[30])
+
+// Begin m=1 base (use fC0 = x, fS0 = y)
+fC0 := fX
+fS0 := fY
+
+// pSH[3] = 0.48860251190292f * fC0;
+p[3] = 0.48860251190292 * fC0
+set(3, p[3])
+
+// pSH[1] = 0.48860251190292f * fS0;
+p[1] = 0.48860251190292 * fS0
+set(1, p[1])
+
+// fTmpB = 1.092548430592079f * fZ;
+tmpB := 1.092548430592079 * fZ
+// pSH[7] = fTmpB * fC0;
+p[7] = tmpB * fC0
+set(7, p[7])
+// pSH[5] = fTmpB * fS0;
+p[5] = tmpB * fS0
+set(5, p[5])
+
+// fTmpC = 2.285228997322329f * fZ2 + -0.4570457994644658f;
+tmpC := 2.285228997322329*fZ2 + -0.4570457994644658
+// pSH[13] = fTmpC * fC0;
+p[13] = tmpC * fC0
+set(13, p[13])
+// pSH[11] = fTmpC * fS0;
+p[11] = tmpC * fS0
+set(11, p[11])
+
+// fTmpA = fZ * (4.683325804901025f * fZ2 + -2.007139630671868f);
+tmpA := fZ * (4.683325804901025*fZ2 + -2.007139630671868)
+// pSH[21] = fTmpA * fC0;
+p[21] = tmpA * fC0
+set(21, p[21])
+// pSH[19] = fTmpA * fS0;
+p[19] = tmpA * fS0
+set(19, p[19])
+
+// fTmpB = 2.03100960115899f * fZ * fTmpA + -0.991031208965115f * fTmpC;
+tmpB = 2.03100960115899*fZ*tmpA + -0.991031208965115*tmpC
+// pSH[31] = fTmpB * fC0;
+p[31] = tmpB * fC0
+set(31, p[31])
+// pSH[29] = fTmpB * fS0;
+p[29] = tmpB * fS0
+set(29, p[29])
+
+// compute fC1,fS1 for m=2 (cos(2φ), sin(2φ))
+fC1 := fX*fC0 - fY*fS0
+fS1 := fX*fS0 + fY*fC0
+
+// pSH[8] = 0.5462742152960395f * fC1;
+p[8] = 0.5462742152960395 * fC1
+set(8, p[8])
+// pSH[4] = 0.5462742152960395f * fS1;
+p[4] = 0.5462742152960395 * fS1
+set(4, p[4])
+
+// fTmpB = 1.445305721320277f * fZ;
+tmpB = 1.445305721320277 * fZ
+// pSH[14] = fTmpB * fC1;
+p[14] = tmpB * fC1
+set(14, p[14])
+// pSH[10] = fTmpB * fS1;
+p[10] = tmpB * fS1
+set(10, p[10])
+
+// fTmpC = 3.31161143515146f * fZ2 + -0.47308734787878f;
+tmpC = 3.31161143515146*fZ2 + -0.47308734787878
+// pSH[22] = fTmpC * fC1;
+p[22] = tmpC * fC1
+set(22, p[22])
+// pSH[18] = fTmpC * fS1;
+p[18] = tmpC * fS1
+set(18, p[18])
+
+// fTmpA = fZ * (7.190305177459987f * fZ2 + -2.396768392486662f);
+tmpA = fZ * (7.190305177459987*fZ2 + -2.396768392486662)
+// pSH[32] = fTmpA * fC1;
+p[32] = tmpA * fC1
+set(32, p[32])
+// pSH[28] = fTmpA * fS1;
+p[28] = tmpA * fS1
+set(28, p[28])
+
+// advance to m=3 (compute cos(3φ), sin(3φ))
+fC0 = fX*fC1 - fY*fS1
+fS0 = fX*fS1 + fY*fC1
+
+// fTmpA = 0.5900435899266435f;
+tmpA = 0.5900435899266435
+// pSH[15] = fTmpA * fC0;
+p[15] = tmpA * fC0
+set(15, p[15])
+// pSH[9] = fTmpA * fS0;
+p[9] = tmpA * fS0
+set(9, p[9])
+
+// fTmpB = 1.770130769779931f * fZ;
+tmpB = 1.770130769779931 * fZ
+// pSH[23] = fTmpB * fC0;
+p[23] = tmpB * fC0
+set(23, p[23])
+// pSH[17] = fTmpB * fS0;
+p[17] = tmpB * fS0
+set(17, p[17])
+
+// fTmpC = 4.403144694917254f * fZ2 + -0.4892382994352505f;
+tmpC = 4.403144694917254*fZ2 + -0.4892382994352505
+// pSH[33] = fTmpC * fC0;
+p[33] = tmpC * fC0
+set(33, p[33])
+// pSH[27] = fTmpC * fS0;
+p[27] = tmpC * fS0
+set(27, p[27])
+
+// advance to m=4
+fC1 = fX*fC0 - fY*fS0
+fS1 = fX*fS0 + fY*fC0
+
+// fTmpA = 0.6258357354491763f;
+tmpA = 0.6258357354491763
+// pSH[24] = fTmpA * fC1;
+p[24] = tmpA * fC1
+set(24, p[24])
+// pSH[16] = fTmpA * fS1;
+p[16] = tmpA * fS1
+set(16, p[16])
+
+// fTmpB = 2.075662314881041f * fZ;
+tmpB = 2.075662314881041 * fZ
+// pSH[34] = fTmpB * fC1;
+p[34] = tmpB * fC1
+set(34, p[34])
+// pSH[26] = fTmpB * fS1;
+p[26] = tmpB * fS1
+set(26, p[26])
+
+// advance to m=5
+fC0 = fX*fC1 - fY*fS1
+fS0 = fX*fS1 + fY*fC1
+
+// fTmpC = 0.6563820568401703f;
+tmpC = 0.6563820568401703
+// pSH[35] = fTmpC * fC0;
+p[35] = tmpC * fC0
+set(35, p[35])
+// pSH[25] = fTmpC * fS0;
+p[25] = tmpC * fS0
+set(25, p[25])
+}

@@ -1,0 +1,23 @@
+.DS_Store
+.idea
+
+# Build/test artifacts
+*.test
+*.out
+panaudia-server
+
+# Local dev workspace — references sibling checkouts, per-machine
+go.work
+go.work.sum
+
+# Local env files — never commit real config/secrets
+.env
+.env.local
+.env.*.local
+
+# JS
+node_modules/
+dist/
+test-results/
+
+server/engine
