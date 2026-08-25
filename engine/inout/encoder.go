@@ -76,17 +76,16 @@ func newOpusOutputEncoderBase(sinkChannels int) *OpusOutputEncoder {
 		outputEncoder.AmbisonicBufferPointers[i] = firstPointer + (uintptr(i) * common.FRAME_SIZE * 4)
 	}
 
+	// Coupled stereo: libopus allocates the pair's bitrate jointly
+	// (mid/side), which suits a binaural pair better than two fixed
+	// mono budgets. No in-band FEC: it is SILK-only and this encoder
+	// runs CELT, and loss cover is the LASA redundancy repeat instead.
 	opusEncoder, err := opus.NewEncoder(common.SAMPLE_RATE, 2, opus.AppAudio)
 	if err != nil {
 		panic(err)
 	}
-	err2 := opusEncoder.SetBitrate(96000)
-	if err2 != nil {
-		common.LogError("Error setting opus output: %v", err2)
-	}
-	err3 := opusEncoder.SetInBandFEC(true)
-	if err3 != nil {
-		common.LogError("Error SetInBandFEC: %v", err3)
+	if err := opusEncoder.SetBitrate(BinauralBitrate); err != nil {
+		common.LogError("Error setting opus output: %v", err)
 	}
 	outputEncoder.opusEncoder = opusEncoder
 	outputEncoder.dynamics = NewStereoCompressorLimiter(float32(common.SAMPLE_RATE), common.FRAME_SIZE)

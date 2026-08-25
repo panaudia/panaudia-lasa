@@ -10,6 +10,11 @@ package inout
 #cgo pkg-config: opus
 #include <opus_multistream.h>
 #include <stdlib.h>
+
+// OPUS_SET_BITRATE is a variadic macro, unreachable from cgo directly.
+static int ms_set_bitrate(OpusMSEncoder *st, opus_int32 bps) {
+	return opus_multistream_encoder_ctl(st, OPUS_SET_BITRATE(bps));
+}
 */
 import "C"
 
@@ -31,7 +36,9 @@ type OpusMSEncoder struct {
 }
 
 // NewOpusMSEncoder creates an all-uncoupled multistream encoder:
-// `channels` streams, coupled = 0, identity mapping, OPUS_APPLICATION_AUDIO.
+// `channels` streams, coupled = 0, identity mapping, OPUS_APPLICATION_AUDIO,
+// pinned at AmbiStreamBitrate per stream (libopus spreads a multistream
+// bitrate evenly over uncoupled streams).
 func NewOpusMSEncoder(channels int) (*OpusMSEncoder, error) {
 	mapping := make([]C.uchar, channels)
 	for i := range mapping {
@@ -49,6 +56,10 @@ func NewOpusMSEncoder(channels int) (*OpusMSEncoder, error) {
 	)
 	if cerr != C.OPUS_OK || enc == nil {
 		return nil, fmt.Errorf("inout: opus_multistream_encoder_create: %d", int(cerr))
+	}
+	if rc := C.ms_set_bitrate(enc, C.opus_int32(channels*AmbiStreamBitrate)); rc != C.OPUS_OK {
+		C.opus_multistream_encoder_destroy(enc)
+		return nil, fmt.Errorf("inout: OPUS_SET_BITRATE: %d", int(rc))
 	}
 	return &OpusMSEncoder{
 		enc:      enc,
