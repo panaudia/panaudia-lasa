@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/joho/godotenv v1.5.1
-	github.com/panaudia/lasa v0.1.0
+	github.com/panaudia/lasa v0.1.1
 	github.com/panaudia/moqtransport v0.8.5-lasa.1
 	github.com/panaudia/panaudia-lasa/engine v0.0.0
 	github.com/quic-go/quic-go v0.61.0
