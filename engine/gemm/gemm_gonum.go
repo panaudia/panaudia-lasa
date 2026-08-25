@@ -18,3 +18,6 @@ func EncodeFade(nInputs, nChannels, nMaxInputs, nSamples int,
 	encodeFadePureGo(nInputs, nChannels, nMaxInputs, nSamples,
 		inputs, weights, prevWeights, output, temp)
 }
+
+// Target names the code path in use; this backend has only one.
+func Target() string { return "gonum" }

@@ -123,3 +123,6 @@ func EncodeFade(nInputs, nChannels, nMaxInputs, nSamples int,
 		(*C.float)(&output[0]),
 		(*C.float)(&temp[0]))
 }
+
+// Target names the code path in use; this backend has only one.
+func Target() string { return "accelerate" }

@@ -36,7 +36,10 @@ jobs:
         # heuristic flags; everything else vet checks stays on.
         run: go vet -unsafeptr=false ./...
       - name: test
-        run: go test -race ./...
+        # engine/jitterlab is the jitter-buffer research lab (simulation
+        # sweeps, scorecards): 30 s plain, 7+ min under -race, and not a
+        # regression suite. It stays out of CI; vet and gofmt still cover it.
+        run: go test -race $(go list ./... | grep -v '/engine/jitterlab$')
 
   xsmm:
     # The production x86 GEMM path: static libxsmm at the SHA the
@@ -70,7 +73,12 @@ jobs:
         run: sudo cp -r "$HOME/libxsmm-install/include/." /usr/local/include/ && sudo cp -r "$HOME/libxsmm-install/lib/." /usr/local/lib/
       - name: test (xsmm)
         working-directory: engine
-        run: go test -tags xsmm ./gemm/ ./ambisonic/ ./engine/
+        # -short: the frame-budget and soak gates (budget_test, soak_m8,
+        # capacity_sweep, latency) are real-hardware measurements — on a
+        # shared 2-vCPU runner they fail on timing, not on correctness.
+        # Correctness of the libxsmm path is the parity/gemm/engine unit
+        # suites, which still run here.
+        run: go test -short -tags xsmm ./gemm/ ./ambisonic/ ./engine/
 
   image:
     # The Dockerfile builds on every push; publishing is image.yml's job

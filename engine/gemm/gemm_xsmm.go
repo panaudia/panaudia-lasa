@@ -113,6 +113,15 @@ const Backend = "libxsmm"
 var servedJIT, servedPureGo atomic.Int64
 
 // Served reports (JIT-kernel calls, pure-Go-fallback calls) since start.
+// Target reports the code path libxsmm JIT-selected for THIS machine's
+// CPU (e.g. "hsw" for AVX2 on Zen3, an AVX-512 tier on Zen4/5) — the
+// answer to "is this build optimised for the box it runs on". The static
+// library itself is compiled for SSE4.2 (libxsmm's default target) and
+// is not on the hot path; the kernels are.
+func Target() string {
+	return C.GoString(C.libxsmm_get_target_arch())
+}
+
 func Served() (jit, pureGo int64) {
 	return servedJIT.Load(), servedPureGo.Load()
 }

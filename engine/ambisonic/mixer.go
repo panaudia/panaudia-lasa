@@ -28,7 +28,7 @@ func logBackend(pureGo bool) {
 		if pureGo {
 			slog.Info("ambisonic mixer: pure-Go gonum BLAS path")
 		} else {
-			slog.Info("ambisonic mixer: GEMM backend", "backend", gemm.Backend)
+			slog.Info("ambisonic mixer: GEMM backend", "backend", gemm.Backend, "target", gemm.Target())
 		}
 	})
 }
