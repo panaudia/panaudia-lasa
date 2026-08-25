@@ -44,14 +44,14 @@ import (
 // against the golden suite. No wall-clock values: windows are read
 // counts, rates are per second of *read time* (tick · R / sr).
 const (
-	v4WindowSec    = 2.0 // sensing window length in seconds of read time
-	                     // (N = v4WindowSec·sr/R reads: 400 at R = 240,
-	                     // 750 at the browser's R = 128 — wall-time
-	                     // invariant across geometries, the TS v3 port's
-	                     // hand adjustment made structural)
-	v4WidthHistory = 10  // K: windows of width history for the rank filter
-	v4WidthRank    = 3   // effective width = rank-th highest of the history
-	v4FreezeMs     = 40  // no-delivery run that freezes sensing + servo
+	v4WindowSec = 2.0 // sensing window length in seconds of read time
+	// (N = v4WindowSec·sr/R reads: 400 at R = 240,
+	// 750 at the browser's R = 128 — wall-time
+	// invariant across geometries, the TS v3 port's
+	// hand adjustment made structural)
+	v4WidthHistory = 10 // K: windows of width history for the rank filter
+	v4WidthRank    = 3  // effective width = rank-th highest of the history
+	v4FreezeMs     = 40 // no-delivery run that freezes sensing + servo
 
 	v4NarrowStepMs = 0.5 // width decay per window (÷κ) — reluctant down
 	v4KLow         = 1.2 // low-side cushion multiplier (·κ)
@@ -69,9 +69,9 @@ const (
 // WindowEstimate is one closed sensing window's output, fed to the
 // controller (design §9).
 type WindowEstimate struct {
-	MedianRaw int64 // window median of pre-read raw fill (frames)
-	MinRaw    int64 // window min of raw fill — the macro-trim evidence
-	MaxRaw    int64
+	MedianRaw  int64 // window median of pre-read raw fill (frames)
+	MinRaw     int64 // window min of raw fill — the macro-trim evidence
+	MaxRaw     int64
 	WidthLow   int64   // effective (rank-filtered, held) late-side width
 	WidthHigh  int64   // effective bunch/reader-stall-side width
 	SlopeFPS   float64 // virtual-signal slope over the FF horizon, frames/s
@@ -122,7 +122,6 @@ func clampRate(v, cap_ float64) float64 {
 // reconciliation, and the min-displacement macro-trim (design §5–§6).
 type PServo struct{}
 
-//
 // Bring-up findings that shaped this law (2026-08-12, recorded in the
 // design doc):
 //
@@ -905,13 +904,13 @@ func (b *JitterBuffer) GetBehind() int {
 // JitterBufferStats is the v4 Snapshot: live derived geometry, servo state, and
 // event counters. Enough to see what the controller believes and why.
 type JitterBufferStats struct {
-	FillFrames     int
-	SetpointFrames int
-	WidthLowFrames int
+	FillFrames      int
+	SetpointFrames  int
+	WidthLowFrames  int
 	WidthHighFrames int
-	RatePerSec     float64
-	Frozen         bool
-	Started        bool
+	RatePerSec      float64
+	Frozen          bool
+	Started         bool
 
 	Underruns       int64
 	Laps            int64

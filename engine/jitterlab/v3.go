@@ -63,7 +63,6 @@ type V3Config struct {
 	HighInit time.Duration
 	HighMin  time.Duration
 	HighMax  time.Duration
-
 }
 
 // V3Buffer is a lock-free single-producer single-consumer jitter buffer
@@ -125,7 +124,6 @@ type V3Buffer struct {
 	statsLaps      atomic.Int64
 	statsDropped   atomic.Int64
 	statsInserted  atomic.Int64
-
 }
 
 // defaultVal returns def when v is zero, else v.
@@ -482,9 +480,9 @@ type V3Stats struct {
 	FillMs      float64
 	FloorFrames int // R + S (fixed)
 
-	LowAllowanceFrames  int     // live L
+	LowAllowanceFrames  int // live L
 	LowAllowanceMs      float64
-	HighAllowanceFrames int     // live H
+	HighAllowanceFrames int // live H
 	HighAllowanceMs     float64
 	TargetFrames        int // T = floor + L
 

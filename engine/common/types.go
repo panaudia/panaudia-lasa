@@ -115,7 +115,7 @@ type SpaceNodeConfig struct {
 	// ITD, parallax or NFC — regardless of PANAUDIA_BILATERAL (plan design
 	// decision 10: render mode is a per-output property; the raw-output
 	// contract is standard world-frame ambisonics, permanently).
-	RawOutput bool `json:"raw_output"`
+	RawOutput     bool        `json:"raw_output"`
 	SubSpaces     []uuid.UUID `json:"subspaces"`
 	InputChannels int         `json:"input_channels"` // 1=mono (MOQ), 2=stereo (WebRTC); 0 defaults to 2
 	ResumeOpID    uint64      `json:"-"`              // cache resume point; 0 = full backfill

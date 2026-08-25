@@ -2,8 +2,6 @@ package ambisonic
 
 import (
 	"log/slog"
-	"os"
-	"strings"
 	"sync"
 
 	"github.com/panaudia/panaudia-lasa/engine/common"
@@ -12,29 +10,23 @@ import (
 	"gonum.org/v1/gonum/blas/blas32"
 )
 
-// useGonumMixer forces the pure-Go gonum mixing path (Mix2) over the
-// core/gemm dispatch when PANAUDIA_MIXER_GONUM is truthy. Kept as the A/B
-// safety hatch and benchmark baseline (plan/m9-saf-exit/plan.md M9.2);
-// every core/gemm backend is reentrant, so the OpenBLAS shared-scratch
-// race that created this switch is gone (history:
+// The mixing path is MixerConfig.PureGoMixer: the pure-Go gonum path
+// (Mix2) over the core/gemm dispatch. Kept as the A/B safety hatch and
+// benchmark baseline (plan/m9-saf-exit/plan.md M9.2); every core/gemm
+// backend is reentrant, so the OpenBLAS shared-scratch race that created
+// this switch is gone (history:
 // ../../../cloud-mixer/plan/clustering-crackle/findings.md, Fix F).
-// Output is sample-for-sample equivalent (see mix_parity_test.go).
-var useGonumMixer = func() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PANAUDIA_MIXER_GONUM"))) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
-}()
+// Output is sample-for-sample equivalent (see mix_parity_test.go). It is
+// configuration passed in, never read from the environment here.
 
 // logBackendOnce reports the mixing path in use — from NewMixer, not
 // package init, so it lands in whatever logger main has installed.
 var logBackendOnce sync.Once
 
-func logBackend() {
+func logBackend(pureGo bool) {
 	logBackendOnce.Do(func() {
-		if useGonumMixer {
-			slog.Info("ambisonic mixer: pure-Go gonum BLAS path (PANAUDIA_MIXER_GONUM set)")
+		if pureGo {
+			slog.Info("ambisonic mixer: pure-Go gonum BLAS path")
 		} else {
 			slog.Info("ambisonic mixer: GEMM backend", "backend", gemm.Backend)
 		}
@@ -57,7 +49,7 @@ type Mixer struct {
 }
 
 func NewMixer(mixerConfig common.MixerConfig) *Mixer {
-	logBackend()
+	logBackend(mixerConfig.PureGoMixer)
 
 	mixer := Mixer{mixerConfig: mixerConfig,
 		inputTotalCount: 0, inputRunningCount: 0}
@@ -197,7 +189,7 @@ func (mixer *Mixer) packWeights(weights []float32, previousWeights []float32) {
 
 func (mixer *Mixer) Mix(output []float32) {
 
-	if useGonumMixer {
+	if mixer.mixerConfig.PureGoMixer {
 		mixer.Mix2(output)
 	} else {
 		// In-repo GEMM dispatch (core/gemm, M9.2) — same contract as the

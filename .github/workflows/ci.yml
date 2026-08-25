@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Two Go modules (engine, server) and the container image. The server
+# module reaches the engine through its go.mod replace; go.work is a
+# local-only file and is not present here, so what CI tests is what a
+# clone gets.
+jobs:
+  go:
+    name: ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [engine, server]
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: libopus
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+      - name: vet
+        # -unsafeptr=false: engine/buffers and engine/convolver do
+        # deliberate uintptr arithmetic over C-owned memory, which vet's
+        # heuristic flags; everything else vet checks stays on.
+        run: go vet -unsafeptr=false ./...
+      - name: test
+        run: go test -race ./...
+
+  xsmm:
+    # The production x86 GEMM path: static libxsmm at the SHA the
+    # Dockerfile pins, then the parity and gemm suites under -tags xsmm.
+    name: engine (xsmm)
+    runs-on: ubuntu-latest
+    env:
+      LIBXSMM_REF: 1d7138cac9f446284daeaf65041cc9043cec2a3b
+    steps:
+      - uses: actions/checkout@v4
+      - name: libopus
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: cache libxsmm
+        id: xsmm
+        uses: actions/cache@v4
+        with:
+          path: ~/libxsmm-install
+          key: libxsmm-${{ env.LIBXSMM_REF }}-${{ runner.os }}
+      - name: build libxsmm
+        if: steps.xsmm.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/libxsmm/libxsmm.git /tmp/libxsmm
+          cd /tmp/libxsmm && git checkout "$LIBXSMM_REF"
+          make -j"$(nproc)" STATIC=1 BLAS=0
+          make PREFIX="$HOME/libxsmm-install" STATIC=1 install
+      - name: install libxsmm
+        run: sudo cp -r "$HOME/libxsmm-install/include/." /usr/local/include/ && sudo cp -r "$HOME/libxsmm-install/lib/." /usr/local/lib/
+      - name: test (xsmm)
+        working-directory: engine
+        run: go test -tags xsmm ./gemm/ ./ambisonic/ ./engine/
+
+  image:
+    # The Dockerfile builds on every push; publishing is image.yml's job
+    # on a server/v* tag.
+    name: image (linux/amd64, no push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: VERSION=ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

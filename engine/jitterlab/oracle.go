@@ -116,8 +116,8 @@ type Scorecard struct {
 	RegretMs         float64 // DutMs − OracleMs
 
 	// Post-warmup artifact densities, per minute of virtual time.
-	SplicesPerMin float64 // drops + inserts
-	SnapsPerMin   float64
+	SplicesPerMin   float64 // drops + inserts
+	SnapsPerMin     float64
 	SilenceMsPerMin float64
 
 	// Final-third densities — steady state after adaptation.

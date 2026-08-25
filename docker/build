@@ -1,0 +1,41 @@
+#!/bin/bash
+set -euo pipefail
+
+# Build the panaudia-server image from this checkout.
+#
+#   docker/build                 # linux/amd64, version from the server/v* git tag
+#   docker/build dev             # explicit version
+#   PLATFORM=linux/arm64 docker/build
+#
+# The version is `git describe --match 'server/v*' --dirty` with the
+# server/ prefix removed (0.3.0 on the tagged commit, 0.3.0-2-gea3c742-dirty
+# past it); it is baked into the binary (-X main.version) and used for
+# the image tag panaudia/panaudia-server:<version>-<arch>. Tag releases
+# `git tag server/vX.Y.Z`. Pass --push via BUILD_ARGS to publish, e.g.
+# BUILD_ARGS=--push docker/build.
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+REPO_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+
+PLATFORM="${PLATFORM:-linux/amd64}"
+ARCH="${PLATFORM#linux/}"
+if [ $# -ge 1 ]; then
+  VERSION="$1"
+else
+  DESCRIBE="$(git -C "$REPO_ROOT" describe --tags --match 'server/v*' --dirty --always 2>/dev/null || true)"
+  case "$DESCRIBE" in
+    server/v*) VERSION="${DESCRIBE#server/v}" ;;
+    "")        VERSION="dev" ;;
+    *)         VERSION="0.0.0-g${DESCRIBE}" ;; # no server/v* tag yet: commit only
+  esac
+fi
+IMAGE="panaudia/panaudia-server:${VERSION}-${ARCH}"
+
+echo "Building $IMAGE for $PLATFORM"
+docker buildx build \
+  --platform "$PLATFORM" \
+  --build-arg "VERSION=$VERSION" \
+  -f "$SCRIPT_DIR/Dockerfile" \
+  -t "$IMAGE" \
+  ${BUILD_ARGS:---load} \
+  "$REPO_ROOT"

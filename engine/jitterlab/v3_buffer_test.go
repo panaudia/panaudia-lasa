@@ -27,12 +27,12 @@ func v3assertPanics(t *testing.T, name string, fn func()) {
 func TestV3Geometry_workedExamples(t *testing.T) {
 	type lv struct{ T, snap, drop, over int64 }
 	cases := []struct {
-		name      string
-		cfg       V3Config
-		floor     int64
-		capacity  int64
-		atInit    lv
-		atMax     lv
+		name     string
+		cfg      V3Config
+		floor    int64
+		capacity int64
+		atInit   lv
+		atMax    lv
 	}{
 		{
 			name: "MOQ 20/5",
@@ -412,7 +412,7 @@ func TestV3Read_insertSpliceStereo(t *testing.T) {
 	set(102, 30, 31)
 	set(103, 40, 41) // peek
 	j.writePos.Store(115)
-	j.readPos.Store(100) // fill 15 < floor 20
+	j.readPos.Store(100)      // fill 15 < floor 20
 	dst := make([]float32, 8) // 4 stereo frames
 	if !j.Read(dst) {
 		t.Fatal("stereo insert should play")
@@ -539,7 +539,7 @@ func TestV3Decide_calmNarrowsToMinNotBelow(t *testing.T) {
 
 func TestV3Decide_incidentalOppositeDoesNotTrip(t *testing.T) {
 	j := v3adaptBuf(50, 50)
-	j.decide(10, 2) // mostly drift-down with a couple incidental drops; min 2 < 5
+	j.decide(10, 2)                      // mostly drift-down with a couple incidental drops; min 2 < 5
 	v3wantLH(t, "incidental", j, 50, 50) // no widen; H not narrowed (drop != 0)
 }
 
@@ -771,12 +771,10 @@ func TestV3Snapshot_afterActivity(t *testing.T) {
 	}
 }
 
-
-
 func TestV3GetBehind(t *testing.T) {
 	j := v3buf(200, 2, 20, 10, 10, 10) // stereo
 	j.readPos.Store(100)
-	j.writePos.Store(110) // 10 frames
+	j.writePos.Store(110)              // 10 frames
 	if gb := j.GetBehind(); gb != 20 { // 10 frames * 2 channels
 		t.Errorf("GetBehind: want 20, got %d", gb)
 	}

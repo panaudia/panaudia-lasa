@@ -88,8 +88,8 @@ func TestImpulseExact(t *testing.T) {
 	// come out as a delta at sample 5, and the silent bus stays exactly zero.
 	filterLen := 64
 	taps := make([]float32, 2*1*filterLen)
-	taps[5] = 1.0            // ear L, ch 0
-	taps[filterLen+9] = 1.0  // ear R, ch 0
+	taps[5] = 1.0           // ear L, ch 0
+	taps[filterLen+9] = 1.0 // ear R, ch 0
 	r := newRig(t, taps, 1, filterLen)
 
 	impulse := make([]float32, common.FRAME_SIZE)

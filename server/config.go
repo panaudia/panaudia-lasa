@@ -3,14 +3,27 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/joho/godotenv"
+
 	"github.com/panaudia/panaudia-lasa/engine/engine"
 )
+
+// This file is the ONLY place the process reads its environment
+// (pinned by TestNoEnvReadsOutsideConfig). Everything is assessed once
+// in main — .env, then loadConfig — and passed on as appConfig.
+//
+// Precedence: real environment > .env file > defaults. The full
+// effective configuration, with each value's provenance, is logged at
+// startup (logEffective); .env.example beside this file documents every
+// variable.
 
 // appConfig is the whole env surface. Everything has a dev-friendly
 // default; PANAUDIA_CERT/PANAUDIA_KEY unset means an ephemeral
@@ -19,6 +32,7 @@ import (
 type appConfig struct {
 	Host     string // PANAUDIA_HOST (bind address; default all interfaces)
 	Port     int    // PANAUDIA_PORT (UDP; default 4443)
+	HTTPPort int    // PANAUDIA_HTTP_PORT (TCP; health/readiness/stats; 0 = off, the default)
 	SpaceID  string // PANAUDIA_SPACE (default "main")
 	CertFile string // PANAUDIA_CERT
 	KeyFile  string // PANAUDIA_KEY
@@ -51,6 +65,56 @@ type appConfig struct {
 	// terminal) or json (one object per line, for a log collector).
 	LogLevel  slog.Level
 	LogFormat string
+
+	// MixerGonum forces the engine's pure-Go mixing path over the GEMM
+	// backend — PANAUDIA_MIXER_GONUM=true, an A/B and benchmark hatch,
+	// never needed in production.
+	MixerGonum bool
+}
+
+// configVars lists every environment variable the server reads, in the
+// order the startup printout uses. Keep .env.example in step.
+var configVars = []string{
+	"PANAUDIA_HOST", "PANAUDIA_PORT", "PANAUDIA_HTTP_PORT", "PANAUDIA_SPACE",
+	"PANAUDIA_CERT", "PANAUDIA_KEY",
+	"PANAUDIA_TICKET_KEY", "PANAUDIA_ALLOW_UNTICKETED",
+	"PANAUDIA_ORDER", "PANAUDIA_MAX_ENTITIES", "PANAUDIA_WORKERS", "PANAUDIA_REVERB",
+	"PANAUDIA_STATS_SEC", "PANAUDIA_LOG_LEVEL", "PANAUDIA_LOG_FORMAT",
+	"PANAUDIA_MIXER_GONUM",
+}
+
+// envSnapshot records which config variables the REAL environment sets,
+// taken before the .env file is loaded so provenance can be reported.
+type envSnapshot map[string]bool
+
+func snapshotEnv() envSnapshot {
+	s := envSnapshot{}
+	for _, name := range configVars {
+		if _, ok := os.LookupEnv(name); ok {
+			s[name] = true
+		}
+	}
+	return s
+}
+
+// loadDotEnv loads PANAUDIA_ENV_FILE if set, else ./.env, into the
+// process environment without overriding variables already set (so the
+// real environment wins). A missing file is normal and returns "";
+// a malformed one is an error — config loading fails fast. Returns the
+// path actually loaded.
+func loadDotEnv() (string, error) {
+	path := os.Getenv("PANAUDIA_ENV_FILE")
+	explicit := path != ""
+	if !explicit {
+		path = ".env"
+	}
+	if err := godotenv.Load(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) && !explicit {
+			return "", nil
+		}
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	return path, nil
 }
 
 var reverbPresets = map[string]int{
@@ -84,6 +148,12 @@ func loadConfig() (appConfig, error) {
 	cfg.Host = os.Getenv("PANAUDIA_HOST")
 	if cfg.Port, err = envInt("PANAUDIA_PORT", cfg.Port); err != nil {
 		return cfg, err
+	}
+	if cfg.HTTPPort, err = envInt("PANAUDIA_HTTP_PORT", cfg.HTTPPort); err != nil {
+		return cfg, err
+	}
+	if cfg.HTTPPort < 0 || cfg.HTTPPort > 65535 {
+		return cfg, fmt.Errorf("PANAUDIA_HTTP_PORT: must be 0 (off) or a port, got %d", cfg.HTTPPort)
 	}
 	if v := os.Getenv("PANAUDIA_SPACE"); v != "" {
 		cfg.SpaceID = v
@@ -125,6 +195,11 @@ func loadConfig() (appConfig, error) {
 	if cfg.LogFormat != "text" && cfg.LogFormat != "json" {
 		return cfg, fmt.Errorf("PANAUDIA_LOG_FORMAT: want text|json, got %q", cfg.LogFormat)
 	}
+	if v := os.Getenv("PANAUDIA_MIXER_GONUM"); v != "" {
+		if cfg.MixerGonum, err = strconv.ParseBool(v); err != nil {
+			return cfg, fmt.Errorf("PANAUDIA_MIXER_GONUM: %w", err)
+		}
+	}
 	if v := os.Getenv("PANAUDIA_TICKET_KEY"); v != "" {
 		raw, err := base64.StdEncoding.DecodeString(v)
 		if err != nil {
@@ -159,6 +234,65 @@ func (c appConfig) engineConfig() engine.Config {
 		MaxEntities:  c.MaxEntities,
 		ReverbPreset: reverbPresets[c.Reverb],
 		Workers:      c.Workers,
+		PureGoMixer:  c.MixerGonum,
+	}
+}
+
+// effective renders every variable's effective value — defaults
+// included — as the startup printout shows it.
+func (c appConfig) effective() map[string]string {
+	ticketKey := ""
+	if c.TicketKey != nil {
+		ticketKey = base64.StdEncoding.EncodeToString(c.TicketKey)
+	}
+	return map[string]string{
+		"PANAUDIA_HOST":             c.Host,
+		"PANAUDIA_PORT":             strconv.Itoa(c.Port),
+		"PANAUDIA_HTTP_PORT":        strconv.Itoa(c.HTTPPort),
+		"PANAUDIA_SPACE":            c.SpaceID,
+		"PANAUDIA_CERT":             c.CertFile,
+		"PANAUDIA_KEY":              c.KeyFile,
+		"PANAUDIA_TICKET_KEY":       ticketKey,
+		"PANAUDIA_ALLOW_UNTICKETED": strconv.FormatBool(c.AllowUnticketed),
+		"PANAUDIA_ORDER":            strconv.Itoa(c.Order),
+		"PANAUDIA_MAX_ENTITIES":     strconv.Itoa(c.MaxEntities),
+		"PANAUDIA_WORKERS":          strconv.Itoa(c.Workers),
+		"PANAUDIA_REVERB":           c.Reverb,
+		"PANAUDIA_STATS_SEC":        strconv.Itoa(c.StatsSec),
+		"PANAUDIA_LOG_LEVEL":        strings.ToLower(c.LogLevel.String()),
+		"PANAUDIA_LOG_FORMAT":       c.LogFormat,
+		"PANAUDIA_MIXER_GONUM":      strconv.FormatBool(c.MixerGonum),
+	}
+}
+
+// provenance says where a variable's effective value came from: the
+// real environment, the .env file, or the default.
+func provenance(name string, real envSnapshot) string {
+	switch {
+	case real[name]:
+		return "env"
+	case os.Getenv(name) != "":
+		return ".env"
+	default:
+		return "default"
+	}
+}
+
+// logEffective prints the full effective configuration, one line per
+// variable, so what the process believes is never in doubt.
+func (c appConfig) logEffective(real envSnapshot, dotEnvPath string) {
+	if dotEnvPath != "" {
+		slog.Info("config: loaded .env file", "path", dotEnvPath)
+	} else {
+		slog.Info("config: no .env file (PANAUDIA_ENV_FILE unset, no ./.env)")
+	}
+	values := c.effective()
+	for _, name := range configVars {
+		v := values[name]
+		if v == "" {
+			v = "(unset)"
+		}
+		slog.Info("config", "name", name, "value", v, "source", provenance(name, real))
 	}
 }
 

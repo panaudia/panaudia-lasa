@@ -1,4 +1,3 @@
-
 package common
 
 import (
@@ -23,7 +22,7 @@ type RotReader struct {
 	R io.Reader
 }
 
-func (r RotReader) Read(p []byte){
+func (r RotReader) Read(p []byte) {
 	//n, err := r.R.Read(p) // remove R to get stack overflow error :-)
 
 	for i := 0; i < len(p); i++ {

@@ -16,8 +16,8 @@ import (
 // Golden DC-gain values from the offline model (sphere_dc_limit, a=0.0875,
 // theta 0/180): the cross-language contract for the table's LF behaviour.
 var nfcDCGoldens = []struct {
-	distM          float64
-	dcLdB, dcRdB   float64
+	distM        float64
+	dcLdB, dcRdB float64
 }{
 	{0.25, 5.33, -4.10},
 	{0.50, 2.44, -2.15},

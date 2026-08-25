@@ -718,7 +718,7 @@ func TestBrowserGeometryV4(t *testing.T) {
 	// for). v4 must absorb both silently, from measurement alone.
 	ms := g.MsToFrames
 	for _, c := range []struct {
-		name           string
+		name             string
 		stallLo, stallHi int64
 	}{
 		{"worklet-clumps-builtin", ms(13), ms(19)},

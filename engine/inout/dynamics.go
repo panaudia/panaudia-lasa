@@ -40,13 +40,13 @@ func NewStereoCompressorLimiter(sampleRate float32, frameSize int) *StereoCompre
 	d.compKneeDb = 6.0
 	d.compMakeupLin = 1.0 // no makeup gain — never boost, only attenuate
 
-	d.compAttackCoeff = coeffFromTime(10.0e-3, sampleRate)  // 10 ms
+	d.compAttackCoeff = coeffFromTime(10.0e-3, sampleRate)   // 10 ms
 	d.compReleaseCoeff = coeffFromTime(150.0e-3, sampleRate) // 150 ms
 
 	// Limiter defaults
 	d.limCeilingLin = dbToLin(-0.5)
 
-	d.limAttackCoeff = coeffFromTime(0.1e-3, sampleRate) // 0.1 ms
+	d.limAttackCoeff = coeffFromTime(0.1e-3, sampleRate)   // 0.1 ms
 	d.limReleaseCoeff = coeffFromTime(50.0e-3, sampleRate) // 50 ms
 
 	return d

@@ -22,7 +22,7 @@ func TestBootTickConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.close()
-	go func() { _ = a.serve() }()
+	go func() { _ = a.serve(context.Background()) }()
 
 	deadline := time.Now().Add(2 * time.Second)
 	for a.mixer.Stats().Ticks == 0 {

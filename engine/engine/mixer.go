@@ -154,6 +154,7 @@ func New(cfg Config) (*Mixer, error) {
 		Order:        cfg.Order,
 		Size:         1.0,
 		ReverbPreset: cfg.ReverbPreset,
+		PureGoMixer:  cfg.PureGoMixer,
 	}
 
 	set := hrtf.Default()

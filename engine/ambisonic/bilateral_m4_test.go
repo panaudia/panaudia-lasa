@@ -28,10 +28,10 @@ func TestWoodworthGoldenValues(t *testing.T) {
 		latSine float64
 		wantS   float64
 	}{
-		{1.0, 6.558139e-4},              // az 90: (a/c)(pi/2 + 1)
-		{-1.0, -6.558139e-4},            // az 270
-		{0.5, 2.611229e-4},              // az 30: (a/c)(pi/6 + 1/2)
-		{0.0, 0.0},                      // median plane
+		{1.0, 6.558139e-4},   // az 90: (a/c)(pi/2 + 1)
+		{-1.0, -6.558139e-4}, // az 270
+		{0.5, 2.611229e-4},   // az 30: (a/c)(pi/6 + 1/2)
+		{0.0, 0.0},           // median plane
 	}
 	for _, c := range cases {
 		got := float64(enc.woodworthITDSamples(float32(c.latSine)))

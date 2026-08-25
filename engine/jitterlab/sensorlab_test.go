@@ -194,7 +194,7 @@ func TestSensorLabPassive(t *testing.T) {
 		stallTick := sc.Duration / 2 / R
 		pre := estAtOrBefore(env, stallTick-400)
 		post := lastEst(env)
-		if d := post.Ref - pre.Ref; d > W+R/4 || d < -(W + R/4) {
+		if d := post.Ref - pre.Ref; d > W+R/4 || d < -(W+R/4) {
 			t.Errorf("full catch-up must leave the env reference unchanged, Δ=%d", d)
 		}
 		inRange(t, "env ppm after recovery", post.DriftPPM, -10, 10)
@@ -208,7 +208,7 @@ func TestSensorLabPassive(t *testing.T) {
 		stallTick := sc.Duration / 2 / R
 		pre := estAtOrBefore(env, stallTick-400)
 		post := lastEst(env)
-		if d := post.Ref - pre.Ref; d > W+R/4 || d < -(W + R/4) {
+		if d := post.Ref - pre.Ref; d > W+R/4 || d < -(W+R/4) {
 			t.Errorf("freeze+re-anchor must excise the loss step, Δ=%d", d)
 		}
 		// dev = t − pos cancels lost time against lost positions.
@@ -225,7 +225,7 @@ func TestSensorLabPassive(t *testing.T) {
 		outTick := sc.Duration / 3 / R
 		pre := estAtOrBefore(env, outTick-400)
 		post := lastEst(env)
-		if d := post.Ref - pre.Ref; d > W+R/4 || d < -(W + R/4) {
+		if d := post.Ref - pre.Ref; d > W+R/4 || d < -(W+R/4) {
 			t.Errorf("outage must teach the env sensor nothing, Δref=%d", d)
 		}
 		inRange(t, "env ppm after outage", post.DriftPPM, -10, 10)

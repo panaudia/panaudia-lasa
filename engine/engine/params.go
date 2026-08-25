@@ -37,6 +37,9 @@ type Config struct {
 	ReverbPreset int
 	// Workers is the number of render worker goroutines.
 	Workers int
+	// PureGoMixer forces the pure-Go gonum mixing path over the GEMM
+	// backend (A/B hatch; output is identical, only speed differs).
+	PureGoMixer bool
 }
 
 func DefaultConfig() Config {

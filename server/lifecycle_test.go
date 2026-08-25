@@ -22,7 +22,7 @@ func startTestApp(t *testing.T, mod func(*appConfig)) *app {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = a.serve() }()
+	go func() { _ = a.serve(context.Background()) }()
 	t.Cleanup(a.close)
 	return a
 }

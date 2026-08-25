@@ -1,0 +1,18 @@
+# Build context is the repo root; keep it to what the Dockerfile copies.
+.git
+.github
+.idea
+.DS_Store
+go.work
+go.work.sum
+.env
+.env.local
+.env.*.local
+*.test
+*.out
+server/panaudia-server
+server/server
+**/node_modules
+**/dist
+**/test-results
+docker

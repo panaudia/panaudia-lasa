@@ -37,6 +37,11 @@ type MixerConfig struct {
 	Order        int
 	Size         float64
 	ReverbPreset int
+	// PureGoMixer selects the pure-Go gonum mixing path over the
+	// core/gemm backend — the A/B safety hatch and benchmark baseline
+	// (plan/m9-saf-exit/plan.md M9.2). Output is sample-for-sample
+	// equivalent (mix_parity_test.go).
+	PureGoMixer bool
 }
 
 type Position struct {
