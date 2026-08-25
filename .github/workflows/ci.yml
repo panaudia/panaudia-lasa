@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: libopus
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus-dev libopusfile-dev pkg-config
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ matrix.module }}/go.mod
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: libopus
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus-dev libopusfile-dev pkg-config
       - uses: actions/setup-go@v5
         with:
           go-version-file: engine/go.mod
