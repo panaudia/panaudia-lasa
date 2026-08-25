@@ -4,8 +4,10 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/panaudia/panaudia-lasa/engine/engine"
 )
@@ -42,6 +44,13 @@ type appConfig struct {
 	// anyone); loadConfig rejects both-or-neither at startup.
 	TicketKey       ed25519.PublicKey
 	AllowUnticketed bool
+
+	// Logging: one slog handler on stderr, installed by main before
+	// anything else runs. PANAUDIA_LOG_LEVEL is debug|info|warn|error
+	// (default info); PANAUDIA_LOG_FORMAT is text (default, for a
+	// terminal) or json (one object per line, for a log collector).
+	LogLevel  slog.Level
+	LogFormat string
 }
 
 var reverbPresets = map[string]int{
@@ -64,6 +73,8 @@ func defaultConfig() appConfig {
 		Reverb:          "medium-room",
 		StatsSec:        60,
 		AllowUnticketed: true, // in-process test convenience; the env path (loadConfig) demands an explicit choice
+		LogLevel:        slog.LevelInfo,
+		LogFormat:       "text",
 	}
 }
 
@@ -102,6 +113,17 @@ func loadConfig() (appConfig, error) {
 	}
 	if _, ok := reverbPresets[cfg.Reverb]; !ok {
 		return cfg, fmt.Errorf("PANAUDIA_REVERB: unknown preset %q", cfg.Reverb)
+	}
+	if v := os.Getenv("PANAUDIA_LOG_LEVEL"); v != "" {
+		if err := cfg.LogLevel.UnmarshalText([]byte(v)); err != nil {
+			return cfg, fmt.Errorf("PANAUDIA_LOG_LEVEL: want debug|info|warn|error, got %q", v)
+		}
+	}
+	if v := os.Getenv("PANAUDIA_LOG_FORMAT"); v != "" {
+		cfg.LogFormat = strings.ToLower(v)
+	}
+	if cfg.LogFormat != "text" && cfg.LogFormat != "json" {
+		return cfg, fmt.Errorf("PANAUDIA_LOG_FORMAT: want text|json, got %q", cfg.LogFormat)
 	}
 	if v := os.Getenv("PANAUDIA_TICKET_KEY"); v != "" {
 		raw, err := base64.StdEncoding.DecodeString(v)

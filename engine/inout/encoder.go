@@ -1,7 +1,8 @@
 package inout
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
 	"unsafe"
 
 	"github.com/panaudia/panaudia-lasa/engine/binaural"
@@ -85,7 +86,7 @@ func newOpusOutputEncoderBase(sinkChannels int) *OpusOutputEncoder {
 		panic(err)
 	}
 	if err := opusEncoder.SetBitrate(BinauralBitrate); err != nil {
-		common.LogError("Error setting opus output: %v", err)
+		slog.Error("opus output encoder: set bitrate failed", "err", err)
 	}
 	outputEncoder.opusEncoder = opusEncoder
 	outputEncoder.dynamics = NewStereoCompressorLimiter(float32(common.SAMPLE_RATE), common.FRAME_SIZE)
@@ -104,7 +105,11 @@ func (outputEncoder *OpusOutputEncoder) BeforeDestroy() {
 	outputEncoder.singleSinkBuffer.BeforeDestroy()
 }
 
-func (outputEncoder *OpusOutputEncoder) Encode(ambisonicChannels []float32) []byte {
+// Encode renders one frame of ambisonic channels to a stereo Opus
+// packet. An encode error returns it rather than panicking; the caller
+// drops that frame and the stream continues. The returned slice aliases
+// the encoder's buffer, valid until the next call.
+func (outputEncoder *OpusOutputEncoder) Encode(ambisonicChannels []float32) ([]byte, error) {
 
 	outputEncoder.singleSinkBuffer.CopyFromSlice(ambisonicChannels)
 
@@ -121,11 +126,10 @@ func (outputEncoder *OpusOutputEncoder) Encode(ambisonicChannels []float32) []by
 	nOut, err := outputEncoder.opusEncoder.EncodeFloat32(stereoData,
 		outputEncoder.opusOutputBuffer)
 	if err != nil {
-		log.Print("encode failed")
-		panic(err)
+		return nil, fmt.Errorf("opus encode: %w", err)
 	}
 
-	return outputEncoder.opusOutputBuffer[:nOut]
+	return outputEncoder.opusOutputBuffer[:nOut], nil
 }
 
 func (encoder *OpusOutputEncoder) SetRotation(rotation common.Rotation) {

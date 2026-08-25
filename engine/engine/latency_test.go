@@ -74,7 +74,11 @@ func TestAudioLatencyChirp(t *testing.T) {
 	dec := inout.NewOpusInputDecoder(2)
 	out := make([]float32, 0, packets*4*FrameSize)
 	for _, f := range w.frames {
-		out = append(out, dec.Decode(f)...)
+		pcm, err := dec.Decode(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, pcm...)
 	}
 	if len(out) < 80000 {
 		t.Fatalf("too little output audio: %d samples", len(out))

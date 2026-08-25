@@ -31,6 +31,7 @@ type Source struct {
 	loudness       atomic.Uint32
 	loudEMA        float32 // audio-thread-only EMA state
 	initialPose    Pose
+	decodeErrors   atomic.Uint64
 }
 
 // WriteOpus ingests one packet: pose (nil = pose decimated) and Opus
@@ -41,12 +42,27 @@ func (s *Source) WriteOpus(seq uint64, pose *Pose, pkt []byte) {
 		return
 	}
 	if len(pkt) > 0 {
-		pcm := s.decoder.Decode(pkt)
+		pcm, err := s.decoder.Decode(pkt)
+		if err != nil {
+			// A packet libopus rejects is handled exactly as a lost one:
+			// concealed for a frame so the sample accounting (and so the
+			// pose ring's alignment) advances as the sender's timeline
+			// did, and counted for diagnostics. Never a panic — the
+			// bytes came from a client.
+			s.decodeErrors.Add(1)
+			pcm = s.decoder.ConcealFloat32(FrameSize)
+		}
 		s.ingestPCM(pcm)
 	}
 	if pose != nil {
 		s.ring.push(seq, s.samplesWritten, *pose)
 	}
+}
+
+// DecodeErrors counts packets the Opus decoder rejected (each concealed
+// as a lost frame). Safe from any goroutine.
+func (s *Source) DecodeErrors() uint64 {
+	return s.decodeErrors.Load()
 }
 
 // WritePCM is the decoded-elsewhere leg: mono float32 at 48 kHz. Same

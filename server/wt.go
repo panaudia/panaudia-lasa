@@ -9,7 +9,7 @@ package main
 
 import (
 	"crypto/tls"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/quic-go/quic-go/http3"
@@ -43,14 +43,14 @@ func newWebTransport(srv *server.Server, tlsCfg *tls.Config) *webtransport.Serve
 		CheckOrigin: func(*http.Request) bool { return true },
 	}
 	mux.HandleFunc(wtPath, func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("webtransport: upgrade request from %s (protocols %q)", r.RemoteAddr, r.Header.Get("Wt-Available-Protocols"))
+		slog.Debug("webtransport: upgrade request", "remote", r.RemoteAddr, "protocols", r.Header.Get("Wt-Available-Protocols"))
 		sess, err := wt.Upgrade(w, r)
 		if err != nil {
-			log.Printf("webtransport: upgrade failed: %v", err)
+			slog.Warn("webtransport: upgrade failed", "remote", r.RemoteAddr, "err", err)
 			http.Error(w, "webtransport upgrade failed", http.StatusBadRequest)
 			return
 		}
-		log.Printf("webtransport: session established from %s", r.RemoteAddr)
+		slog.Info("webtransport: session established", "remote", r.RemoteAddr)
 		// Session.Context ends when the transport dies — the guaranteed
 		// teardown signal ServeConn requires (invariant L5).
 		go func() { _ = srv.ServeConn(sess.Context(), webtransportmoq.NewServer(sess)) }()

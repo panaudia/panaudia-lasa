@@ -7,7 +7,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -123,7 +123,7 @@ func (a *app) serve() error {
 		case http3.NextProtoH3:
 			go func() {
 				if err := a.wt.ServeQUICConn(conn); err != nil {
-					log.Printf("webtransport: h3 serve: %v", err)
+					slog.Warn("webtransport: h3 serve", "err", err)
 				}
 			}()
 		default:
@@ -140,23 +140,29 @@ func (a *app) close() {
 }
 
 func main() {
+	// Config first, logger second, everything else after: every line the
+	// process emits goes through the configured handler.
 	cfg, err := loadConfig()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("config", "err", err)
+		os.Exit(1)
 	}
+	slog.SetDefault(newLogger(cfg, os.Stderr))
 	a, err := newApp(cfg)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("start", "err", err)
+		os.Exit(1)
 	}
 	defer a.close()
 	go a.statsLoop(time.Duration(cfg.StatsSec) * time.Second)
-	log.Printf("panaudia-server: space %q on %s (order %d, ambi offering up to %d, max %d entities)",
-		cfg.SpaceID, a.listener.Addr(), cfg.Order, min(cfg.Order, 3), cfg.MaxEntities)
-	log.Printf("panaudia-server: WebTransport at https://<host>:%d%s", cfg.Port, wtPath)
+	slog.Info("panaudia-server: listening",
+		"space", cfg.SpaceID, "addr", a.listener.Addr().String(),
+		"order", cfg.Order, "ambiOfferingUpTo", min(cfg.Order, 3), "maxEntities", cfg.MaxEntities,
+		"webtransport", fmt.Sprintf("https://<host>:%d%s", cfg.Port, wtPath))
 	if a.certHash != "" {
-		log.Printf("panaudia-server: dev cert serverCertificateHashes (sha-256, base64): %s", a.certHash)
+		slog.Info("panaudia-server: dev cert serverCertificateHashes (sha-256, base64)", "hash", a.certHash)
 	}
 	if err := a.serve(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("serve", "err", err)
 	}
 }

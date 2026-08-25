@@ -2,6 +2,7 @@ package engine
 
 import (
 	"github.com/panaudia/panaudia-lasa/engine/inout"
+	"sync/atomic"
 )
 
 // FrameWriter receives a sink's rendered frames on a render worker
@@ -31,7 +32,14 @@ type Sink struct {
 	// budget-test listeners). Internal: built by addNullSink.
 	nullOut inout.AmbisonicOutput
 
-	pose poseSlot
+	pose         poseSlot
+	encodeErrors atomic.Uint64
+}
+
+// EncodeErrors counts frames the Opus encoder rejected (each dropped;
+// the stream continues). Safe from any goroutine.
+func (k *Sink) EncodeErrors() uint64 {
+	return k.encodeErrors.Load()
 }
 
 // SetPose updates the sink's pose, latest-wins. For a sink the rotation
@@ -48,7 +56,11 @@ func (k *Sink) emit(output []float32) {
 		k.nullOut.WriteAmbisonic(output)
 		return
 	}
-	pkt := k.out.Encode(output)
+	pkt, err := k.out.Encode(output)
+	if err != nil {
+		k.encodeErrors.Add(1)
+		return // an encode error drops the frame; the stream continues
+	}
 	k.w.WriteFrame(pkt, k.m.frameStart)
 }
 

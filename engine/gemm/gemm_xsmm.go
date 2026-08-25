@@ -97,6 +97,7 @@ static int pah_xsmm_encode_fade(int M, int K,
 import "C"
 
 import (
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -126,14 +127,14 @@ func init() {
 // thread; NewMixer calls it at construction. Idempotent, internally locked.
 func Predispatch(nChannels, maxSources int) {
 	if nChannels >= C.PAH_GEMM_MAXM || maxSources > C.PAH_GEMM_MAXK {
-		common.LogWarn("gemm: shape (M=%d, maxK=%d) exceeds the libxsmm kernel table — those calls will use the pure-Go path",
-			nChannels, maxSources)
+		slog.Warn("gemm: shape exceeds the libxsmm kernel table; those calls use the pure-Go path",
+			"m", nChannels, "maxK", maxSources)
 		return
 	}
 	ok := int(C.pah_xsmm_predispatch(C.int(nChannels), C.int(maxSources)))
 	if ok < maxSources {
-		common.LogWarn("gemm: libxsmm JITed %d/%d kernels for M=%d (JIT unavailable? check PROT_EXEC) — missing shapes fall back to pure Go",
-			ok, maxSources, nChannels)
+		slog.Warn("gemm: libxsmm JITed only some kernels (JIT unavailable? check PROT_EXEC); missing shapes fall back to pure Go",
+			"jitted", ok, "wanted", maxSources, "m", nChannels)
 	}
 }
 
@@ -158,7 +159,7 @@ func EncodeFade(nInputs, nChannels, nMaxInputs, nSamples int,
 			return
 		}
 		warnFallbackOnce.Do(func() {
-			common.LogWarn("gemm: libxsmm JIT unavailable — encode running on the pure-Go path (check PROT_EXEC / W^X in this container)")
+			slog.Warn("gemm: libxsmm JIT unavailable; encode running on the pure-Go path (check PROT_EXEC / W^X in this container)")
 		})
 	}
 	servedPureGo.Add(1)

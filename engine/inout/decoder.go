@@ -1,13 +1,13 @@
 package inout
 
 import (
-	"log"
+	"fmt"
 
 	"gopkg.in/hraban/opus.v2"
 )
 
 type InputDecoder interface {
-	Decode(src []byte) []float32
+	Decode(src []byte) ([]float32, error)
 }
 
 type BytesInputDecoder struct {
@@ -18,9 +18,8 @@ func NewBytesInputDecoder() *BytesInputDecoder {
 	return &decoder
 }
 
-func (decoder *BytesInputDecoder) Decode(src []byte) []float32 {
-	//common.LogDebug("Decode in BytesInputDecoder")
-	return Decodef32(src)
+func (decoder *BytesInputDecoder) Decode(src []byte) ([]float32, error) {
+	return Decodef32(src), nil
 }
 
 // takes opus input data as []byte and returns mono 32bit 48000 in []float32
@@ -60,30 +59,30 @@ func NewOpusInputDecoder(channels int) *OpusInputDecoder {
 	return &decoder
 }
 
-func (decoder *OpusInputDecoder) Decode(src []byte) []float32 {
+// Decode decodes one Opus packet to mono float32. A malformed packet
+// returns an error and leaves the decoder state untouched; the caller
+// decides how to cover the frame (the engine conceals it as a loss).
+// The returned slice aliases the decoder's buffer, valid until the
+// next call.
+func (decoder *OpusInputDecoder) Decode(src []byte) ([]float32, error) {
 	if decoder.channels == 1 {
-		//log.Print("mono")
 		// Mono: decode directly to mono buffer
 		n, err := decoder.opusDecoder.DecodeFloat32(src, decoder.monoBuffer)
 		if err != nil {
-			log.Print("decode failed")
-			panic(err)
+			return nil, fmt.Errorf("opus decode: %w", err)
 		}
-		return decoder.monoBuffer[:n]
+		return decoder.monoBuffer[:n], nil
 	}
-
-	//log.Print("stereo")
 
 	// Stereo: decode then downmix to mono
 	n, err := decoder.opusDecoder.DecodeFloat32(src, decoder.stereoBuffer)
 	if err != nil {
-		log.Print("decode failed")
-		panic(err)
+		return nil, fmt.Errorf("opus decode: %w", err)
 	}
 
 	for i := 0; i < n; i++ {
 		decoder.monoBuffer[i] = decoder.stereoBuffer[i*2] + decoder.stereoBuffer[(i*2)+1]
 	}
 
-	return decoder.monoBuffer[:n]
+	return decoder.monoBuffer[:n], nil
 }

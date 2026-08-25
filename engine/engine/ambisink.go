@@ -18,6 +18,7 @@ package engine
 import (
 	"fmt"
 	"math"
+	"sync/atomic"
 
 	"github.com/panaudia/panaudia-lasa/engine/ambisonic"
 
@@ -48,14 +49,19 @@ type AmbiSink struct {
 	order int
 	w     FrameWriter
 
-	enc        *inout.OpusMSEncoder
-	pose       poseSlot
-	interleave []float32 // (order+1)² × FrameSize encode scratch
+	enc          *inout.OpusMSEncoder
+	pose         poseSlot
+	interleave   []float32 // (order+1)² × FrameSize encode scratch
+	encodeErrors atomic.Uint64
 }
 
 // SetPose updates the listening pose, latest-wins. Only the position is
 // consumed — the rendered field is world-frame by design.
 func (k *AmbiSink) SetPose(p Pose) { k.pose.store(p) }
+
+// EncodeErrors counts frames the multistream encoder rejected (each
+// dropped; the stream continues). Safe from any goroutine.
+func (k *AmbiSink) EncodeErrors() uint64 { return k.encodeErrors.Load() }
 
 // AddAmbiSink attaches a raw ambisonic sink of the given order (2 or 3,
 // and at most the bus order) to entity id, creating the entity if
@@ -176,6 +182,7 @@ func (k *AmbiSink) emit(planar []float32) {
 	}
 	pkt, err := k.enc.Encode(k.interleave)
 	if err != nil {
+		k.encodeErrors.Add(1)
 		return // an encode error drops the frame; the stream continues
 	}
 	k.w.WriteFrame(pkt, k.m.frameStart)

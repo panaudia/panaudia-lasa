@@ -70,8 +70,12 @@ type entityRec struct {
 	dep *server.Depacketizer // stats surface (S6)
 }
 
-// poseSink is the pose fan-out target both engine sink kinds satisfy.
-type poseSink interface{ SetPose(engine.Pose) }
+// poseSink is what both engine sink kinds offer the backend: the pose
+// fan-out target, and the encode-error counter the stats surface sums.
+type poseSink interface {
+	SetPose(engine.Pose)
+	EncodeErrors() uint64
+}
 
 // addPoseSink / removePoseSink maintain the COW fan-out list (control
 // plane; b.mu serialises the writers).

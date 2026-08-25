@@ -1,20 +1,11 @@
 package common
 
-import (
-	"os"
-)
-
 // Bilateral rendering is the only binaural path since M9.4
 // (plan/m9-saf-exit/plan.md): the PANAUDIA_BILATERAL flag and the legacy
 // single-mix ambi_bin decode are gone. Render mode is per-output — binaural
 // outputs are dual-bus ear-centered, raw ambisonic outputs (ROC/Link) are
 // the permanent classic world-frame encode (NewClassicEncoder, design
 // decision 10). Rollback is the previous image tag, not a flag.
-func init() {
-	if os.Getenv("PANAUDIA_BILATERAL") != "" {
-		LogWarn("PANAUDIA_BILATERAL is deprecated and ignored — bilateral rendering is always on (raw outputs render classic per output; see plan/m9-saf-exit/plan.md)")
-	}
-}
 
 // DelayRingHistory is the per-source input-ring history the bilateral
 // encoder keeps ahead of the current frame (ambisonic.DelayRingHistory

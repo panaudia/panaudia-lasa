@@ -1,9 +1,10 @@
 package ambisonic
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/panaudia/panaudia-lasa/engine/common"
 	"github.com/panaudia/panaudia-lasa/engine/gemm"
@@ -26,12 +27,18 @@ var useGonumMixer = func() bool {
 	return false
 }()
 
-func init() {
-	if useGonumMixer {
-		common.LogInfo("ambisonic mixer: PANAUDIA_MIXER_GONUM set — using pure-Go gonum BLAS path")
-	} else {
-		common.LogInfo("ambisonic mixer: GEMM backend %s", gemm.Backend)
-	}
+// logBackendOnce reports the mixing path in use — from NewMixer, not
+// package init, so it lands in whatever logger main has installed.
+var logBackendOnce sync.Once
+
+func logBackend() {
+	logBackendOnce.Do(func() {
+		if useGonumMixer {
+			slog.Info("ambisonic mixer: pure-Go gonum BLAS path (PANAUDIA_MIXER_GONUM set)")
+		} else {
+			slog.Info("ambisonic mixer: GEMM backend", "backend", gemm.Backend)
+		}
+	})
 }
 
 type Mixer struct {
@@ -50,6 +57,7 @@ type Mixer struct {
 }
 
 func NewMixer(mixerConfig common.MixerConfig) *Mixer {
+	logBackend()
 
 	mixer := Mixer{mixerConfig: mixerConfig,
 		inputTotalCount: 0, inputRunningCount: 0}
@@ -185,13 +193,6 @@ func (mixer *Mixer) packWeights(weights []float32, previousWeights []float32) {
 		mixer.previousPackedWeights[transposeIndex] = previousWeights[i]
 	}
 	mixer.inputRunningCount++
-}
-
-func (mixer *Mixer) PrintState() {
-	fmt.Println("input count:", mixer.inputTotalCount)
-	fmt.Println("packed inputs:", mixer.packedInputs)
-	fmt.Println("packed weights:", mixer.packedWeights)
-	fmt.Println("previous packed weights:", mixer.previousPackedWeights)
 }
 
 func (mixer *Mixer) Mix(output []float32) {

@@ -455,8 +455,6 @@ func (encoder *Encoder) recomputeAttenuationExponent() {
 // genuinely differ — per-ear ITD reads); it is unused (may be nil) flag-off.
 func (encoder *Encoder) EncodePeers(peers []*Encoder, dryMixer *Mixer, dryMixerR *Mixer, reverbMixer *Mixer) {
 
-	//common.LogDebug("Peers: %d", len(peers))
-
 	if encoder.dualBus {
 		// The frame generation advances on EVERY flag-on frame, including
 		// ones that render no peers: if the early returns below skipped it,
@@ -515,8 +513,6 @@ func (encoder *Encoder) EncodePeers(peers []*Encoder, dryMixer *Mixer, dryMixerR
 
 	peerCount := len(encoder.filteredPeers)
 
-	//common.LogDebug("Filtered Peers: %d", peerCount)
-
 	if peerCount == 0 {
 		encoder.ClearOutput()
 		return
@@ -539,12 +535,6 @@ func (encoder *Encoder) EncodePeers(peers []*Encoder, dryMixer *Mixer, dryMixerR
 	}
 
 	for _, peer := range encoder.filteredPeers {
-
-		//common.LogDebug("encoder.Position:  %v", encoder.Position)
-		//common.LogDebug("peer.Position:  %v", peer.Position)
-		//common.LogDebug("peer.slot:  %d", peer.slot)
-		//common.LogDebug("peer.gainFactor:  %f", peer.gainFactor)
-		//common.LogDebug("peer.peerAttenuationExponent %f", peer.peerAttenuationExponent)
 
 		slotIndex := peer.slot * channelCount
 
@@ -662,7 +652,6 @@ func (encoder *Encoder) EncodePeers(peers []*Encoder, dryMixer *Mixer, dryMixerR
 		}
 	}
 
-	//common.LogDebug("encoder.Output: %v", encoder.Output)
 }
 
 func (encoder *Encoder) PostMix() {

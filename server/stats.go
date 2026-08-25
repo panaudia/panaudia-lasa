@@ -8,7 +8,7 @@ package main
 // wrap the same snapshot when a deployment wants one.
 
 import (
-	"log"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -27,12 +27,27 @@ type entityStats struct {
 	ID             string                    `json:"id"`
 	ClientID       string                    `json:"client_id"`
 	LatencySamples int                       `json:"latency_samples"`
+	DecodeErrors   uint64                    `json:"decode_errors"`
+	EncodeErrors   uint64                    `json:"encode_errors"` // summed over the entity's live sinks
 	Jitter         buffers.JitterBufferStats `json:"jitter"`
 	Depacketizer   server.DepacketizerStats  `json:"depacketizer"`
 }
 
 func (a *app) stats() serverStats {
 	return serverStats{Engine: a.mixer.Stats(), Entities: a.backend.entityStats()}
+}
+
+// encodeErrors sums the encode-error counters of the entity's live
+// sinks (binaural and/or ambi orders). Lock-free: one atomic load of
+// the COW fan-out list.
+func (rec *entityRec) encodeErrors() uint64 {
+	var n uint64
+	if sinks := rec.sinks.Load(); sinks != nil {
+		for _, k := range *sinks {
+			n += k.EncodeErrors()
+		}
+	}
+	return n
 }
 
 func (b *backend) entityStats() []entityStats {
@@ -44,6 +59,8 @@ func (b *backend) entityStats() []entityStats {
 			ID:             id,
 			ClientID:       rec.clientID,
 			LatencySamples: rec.src.LatencySamples(),
+			DecodeErrors:   rec.src.DecodeErrors(),
+			EncodeErrors:   rec.encodeErrors(),
 			Jitter:         rec.src.JitterStats(),
 			Depacketizer:   rec.dep.Stats(),
 		})
@@ -67,18 +84,24 @@ func (a *app) statsLoop(interval time.Duration) {
 			continue
 		}
 		per := s.Engine.PerTick()
-		var delivered, lost, gaps uint64
+		var delivered, lost, gaps, decodeErrors, encodeErrors uint64
 		maxFill := 0
 		for _, e := range s.Entities {
 			delivered += e.Depacketizer.Delivered
 			lost += e.Depacketizer.Lost + e.Depacketizer.Skipped
 			gaps += e.Depacketizer.GapEvents
+			decodeErrors += e.DecodeErrors
+			encodeErrors += e.EncodeErrors
 			if e.LatencySamples > maxFill {
 				maxFill = e.LatencySamples
 			}
 		}
-		log.Printf("stats: entities=%d ticks=%d per-tick{prep=%s in=%s across=%s out=%s} max-jitter-fill=%dsmp ingress{delivered=%d lost=%d gap-events=%d}",
-			len(s.Entities), s.Engine.Ticks, per.Prep, per.In, per.Across, per.Out, maxFill, delivered, lost, gaps)
+		slog.Info("stats",
+			"entities", len(s.Entities), "ticks", s.Engine.Ticks,
+			slog.Group("perTick", "prep", per.Prep, "in", per.In, "across", per.Across, "out", per.Out),
+			"maxJitterFillSamples", maxFill,
+			slog.Group("ingress", "delivered", delivered, "lost", lost, "gapEvents", gaps, "decodeErrors", decodeErrors),
+			slog.Group("egress", "encodeErrors", encodeErrors))
 		if !detail {
 			continue
 		}
@@ -88,12 +111,16 @@ func (a *app) statsLoop(interval time.Duration) {
 			// v4 snapshot fields (48 kHz: 48 frames/ms). sp is the
 			// servo setpoint, wl/wh the measured per-side widths,
 			// rate the live splice rate, trim the macro-trim count.
-			log.Printf("stats[%s]: jbuf{fill=%.1fms sp=%.1fms wl=%.1f wh=%.1f rate=%+.1f/s und=%d ovr=%d lap=%d trim=%d ins=%d drop=%d frozen=%v} dep{del=%d rec=%d lost=%d skip=%d dup=%d late=%d gaps=%d hist=%v}",
-				e.ID, float64(j.FillFrames)/48.0, float64(j.SetpointFrames)/48.0,
-				float64(j.WidthLowFrames)/48.0, float64(j.WidthHighFrames)/48.0,
-				j.RatePerSec, j.Underruns, j.Overruns, j.Laps, j.Trims,
-				j.SamplesInserted, j.SamplesDropped, j.Frozen,
-				d.Delivered, d.Recovered, d.Lost, d.Skipped, d.Duplicates, d.Late, d.GapEvents, d.GapHist)
+			slog.Info("stats: entity", "entity", e.ID, "decodeErrors", e.DecodeErrors, "encodeErrors", e.EncodeErrors,
+				slog.Group("jbuf",
+					"fillMs", float64(j.FillFrames)/48.0, "setpointMs", float64(j.SetpointFrames)/48.0,
+					"widthLowMs", float64(j.WidthLowFrames)/48.0, "widthHighMs", float64(j.WidthHighFrames)/48.0,
+					"ratePerSec", j.RatePerSec, "underruns", j.Underruns, "overruns", j.Overruns,
+					"laps", j.Laps, "trims", j.Trims, "inserted", j.SamplesInserted, "dropped", j.SamplesDropped,
+					"frozen", j.Frozen),
+				slog.Group("dep",
+					"delivered", d.Delivered, "recovered", d.Recovered, "lost", d.Lost, "skipped", d.Skipped,
+					"duplicates", d.Duplicates, "late", d.Late, "gapEvents", d.GapEvents, "gapHist", d.GapHist))
 		}
 	}
 }

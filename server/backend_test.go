@@ -9,10 +9,34 @@ import (
 )
 
 type fakePoseSink struct {
-	got []engine.Pose
+	got  []engine.Pose
+	errs uint64
 }
 
 func (f *fakePoseSink) SetPose(p engine.Pose) { f.got = append(f.got, p) }
+func (f *fakePoseSink) EncodeErrors() uint64  { return f.errs }
+
+// The stats snapshot's encode_errors is the sum over the entity's live
+// sinks, zero with none attached.
+func TestEntityEncodeErrorsSumOverSinks(t *testing.T) {
+	b := newBackend(nil)
+	slot := presence.NewCollector().Register("e1", false, nil)
+	rec := &entityRec{slot: slot}
+	if got := rec.encodeErrors(); got != 0 {
+		t.Fatalf("no sinks: encodeErrors = %d, want 0", got)
+	}
+	binaural := &fakePoseSink{errs: 3}
+	ambi := &fakePoseSink{errs: 4}
+	b.addPoseSink(rec, binaural)
+	b.addPoseSink(rec, ambi)
+	if got := rec.encodeErrors(); got != 7 {
+		t.Fatalf("encodeErrors = %d, want 7", got)
+	}
+	b.removePoseSink(rec, ambi)
+	if got := rec.encodeErrors(); got != 3 {
+		t.Fatalf("after detach: encodeErrors = %d, want 3", got)
+	}
+}
 
 // A sink attached after join (StartSink → addPoseSink) must be seeded
 // with the entity's latest pose — the initial pose when no pose packet
