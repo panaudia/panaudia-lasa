@@ -18,8 +18,8 @@ github.com/mengelbart/qlog v0.1.0 h1:8cDMuCMcKtzkPXUU5FF7OBwqKiy+De0GKvIvNawifoA
 github.com/mengelbart/qlog v0.1.0/go.mod h1:nIlGcUugkfDu41B8LKdAwjHQ1NxAF54D9hS2EDOlVyk=
 github.com/panaudia/lasa v0.1.1 h1:trquWdpUzHCwdolQC2d3IO/cgviP5RTZ+YSvaud7oZM=
 github.com/panaudia/lasa v0.1.1/go.mod h1:qjfV2ZN9bCo215ZAcZQAnlM521fqLA02KZtvco96+cs=
-github.com/panaudia/moqtransport v0.8.5-lasa.1 h1:dU/0QXo6rfGKqUPkph7vYfGmM1xbrvN/y5kBuM8kGv4=
-github.com/panaudia/moqtransport v0.8.5-lasa.1/go.mod h1:4XQtjU7qihJs5w2JDPvpuTRWzkJ4UWs5f+Iktiji/e0=
+github.com/panaudia/moqtransport v0.8.5-lasa.2 h1:578kb+H+HAu2ARnLLSNsU+fmyA1WcgKaA8NNgGK33dE=
+github.com/panaudia/moqtransport v0.8.5-lasa.2/go.mod h1:4XQtjU7qihJs5w2JDPvpuTRWzkJ4UWs5f+Iktiji/e0=
 github.com/panaudia/webtransport-go v0.12.1-0.20260821153741-1bc7484acf3f h1:O/3J7esjSW7JdBBRpdMXTYvBxyLdX9w/mTeIqI6jKNg=
 github.com/panaudia/webtransport-go v0.12.1-0.20260821153741-1bc7484acf3f/go.mod h1:GHne8aRFJ24h73pAMrcywXtuaz/ShBXCLXLvG/NPFdU=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
