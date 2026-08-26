@@ -52,6 +52,36 @@ def kind(text):
         return "BSD-3-Clause" if "endorse or promote" in t else "BSD-2-Clause"
     return "see text"
 
+# Modules whose pinned version predates a LICENSE file that upstream has
+# since added. Text is the upstream file verbatim; the note says why it
+# is not in the module cache.
+KNOWN = {
+    "github.com/mengelbart/qlog": ("MIT", """MIT License
+
+Copyright (c) 2026 Mathis Engelbart
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.""",
+        "v0.1.0 ships no LICENSE file; upstream added the MIT licence "
+        "below after that tag (github.com/mengelbart/qlog, main). "
+        "Reproduced from upstream; the pinned version is unchanged."),
+}
+
 GO_AUTHORS = "golang.org/x/"
 APACHE_NOTE = ("Apache-2.0. The full licence text is reproduced once in the "
                "Apache License section at the end of this file.")
@@ -82,16 +112,13 @@ def main():
         w(f"### {path}\n")
         w(f"https://{path}\n\n")
         w(f"{m['version']}" + (f" (built from {m['replace']})" if m["replace"] else "") + "\n\n")
-        if text is None:
-            w("LICENCE PENDING - UNRESOLVED\n\n"
-              "This module ships no LICENSE file and states no licence terms\n"
-              "(checked against upstream on 2026-08-25: no LICENSE in the\n"
-              "repository, no licence declared to GitHub), so its redistribution\n"
-              "terms are unclear. It is pulled in transitively through\n"
-              "github.com/panaudia/moqtransport for qlog output. To be resolved\n"
-              "before a public image release: obtain terms from the author, or\n"
-              "replace or remove the dependency. Listed for transparency.\n\n")
+        if text is None and path in KNOWN:
+            k, text, note = KNOWN[path]
+            w(f"{k}\n\n{note}\n\n{text}\n\n")
             continue
+        if text is None:
+            sys.stderr.write(f"error: no LICENSE for {path} in {m['dir']}\n")
+            sys.exit(1)
         k = kind(text)
         if k == "Apache-2.0":
             apache_text = apache_text or text

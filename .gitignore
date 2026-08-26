@@ -21,3 +21,4 @@ dist/
 test-results/
 
 server/engine
+/server/server

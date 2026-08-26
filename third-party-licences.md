@@ -167,21 +167,37 @@ https://github.com/mengelbart/qlog
 
 v0.1.0
 
-LICENCE PENDING - UNRESOLVED
+MIT
 
-This module ships no LICENSE file and states no licence terms
-(checked against upstream on 2026-08-25: no LICENSE in the
-repository, no licence declared to GitHub), so its redistribution
-terms are unclear. It is pulled in transitively through
-github.com/panaudia/moqtransport for qlog output. To be resolved
-before a public image release: obtain terms from the author, or
-replace or remove the dependency. Listed for transparency.
+v0.1.0 ships no LICENSE file; upstream added the MIT licence below after that tag (github.com/mengelbart/qlog, main). Reproduced from upstream; the pinned version is unchanged.
+
+MIT License
+
+Copyright (c) 2026 Mathis Engelbart
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 -------------------------------------------------------------------------
 ### github.com/panaudia/lasa
 https://github.com/panaudia/lasa
 
-v0.1.0
+v0.1.2
 
 MIT
 
@@ -211,7 +227,7 @@ SOFTWARE.
 ### github.com/panaudia/moqtransport
 https://github.com/panaudia/moqtransport
 
-v0.8.5-lasa.1
+v0.8.5-lasa.2
 
 MIT
 
