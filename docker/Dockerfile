@@ -93,9 +93,20 @@ RUN setcap cap_net_admin+p /out/panaudia-server \
 # --- runtime -----------------------------------------------------------
 FROM debian:trixie-slim
 
+# perl-base is Debian "Essential" and so present in every image, but
+# nothing here runs it (the entrypoint is the Go binary, which has no
+# os/exec, and there is no shell or init). Purging it after the apt
+# step (dpkg maintainer scripts have run by then) removes the one
+# package that carried every critical/high CVE in the 0.1.4 scan, at
+# the price of a half-working dpkg/apt inside the image, which a
+# runtime image does not need. (Verified 2026-08-27: image boots and
+# serves; scan 2C 2H -> 0C 0H.)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates libopus0 \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && dpkg --purge --force-remove-essential --force-depends perl-base \
+ && rm -rf /var/lib/dpkg/info/perl-base.* \
+ && ! test -e /usr/bin/perl
 
 # Unprivileged, home-less service user (trixie-slim has useradd, not adduser).
 RUN useradd --uid 65532 --no-create-home --home-dir /nonexistent \

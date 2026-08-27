@@ -39,7 +39,9 @@ Go build info; anything else reports `dev`.
 
 The runtime image is `debian:trixie-slim` plus `libopus0` and the
 binary, running as an unprivileged user; about 175 MB, nearly all of
-it the Debian base. It listens on 4443/udp; map it to 443 with
+it the Debian base. Debian's `perl-base` is purged from it (nothing
+in the image runs perl, and it is where the scanner findings were),
+so `dpkg`/`apt` inside the image are not usable, by design. It listens on 4443/udp; map it to 443 with
 `-p 443:4443/udp` if you want the conventional port. On both
 architectures the GEMM hot path is static libxsmm, embedded in the
 binary (the build verifies it): JIT kernels for the host's ISA on x86,
