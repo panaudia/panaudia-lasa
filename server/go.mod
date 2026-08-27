@@ -1,10 +1,10 @@
 module github.com/panaudia/panaudia-lasa/server
 
-go 1.26.0
+go 1.26.7
 
 require (
 	github.com/joho/godotenv v1.5.1
-	github.com/panaudia/lasa v0.1.3
+	github.com/panaudia/lasa v0.1.4
 	github.com/panaudia/moqtransport v0.8.5-lasa.2
 	github.com/panaudia/panaudia-lasa/engine v0.0.0
 	github.com/quic-go/quic-go v0.61.0
@@ -18,7 +18,7 @@ require (
 	github.com/dunglas/httpsfv v1.1.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/mengelbart/qlog v0.1.0 // indirect
+	github.com/mengelbart/qlog v0.1.1-0.20260825155429-978b2062c546 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	go.mongodb.org/mongo-driver v1.17.4 // indirect

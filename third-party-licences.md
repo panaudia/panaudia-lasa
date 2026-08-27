@@ -165,11 +165,9 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ### github.com/mengelbart/qlog
 https://github.com/mengelbart/qlog
 
-v0.1.0
+v0.1.1-0.20260825155429-978b2062c546
 
 MIT
-
-v0.1.0 ships no LICENSE file; upstream added the MIT licence below after that tag (github.com/mengelbart/qlog, main). Reproduced from upstream; the pinned version is unchanged.
 
 MIT License
 
@@ -197,7 +195,7 @@ SOFTWARE.
 ### github.com/panaudia/lasa
 https://github.com/panaudia/lasa
 
-v0.1.2
+v0.1.4
 
 MIT
 
@@ -303,7 +301,7 @@ SOFTWARE.
 ### github.com/quic-go/webtransport-go
 https://github.com/quic-go/webtransport-go
 
-v0.12.0 (built from github.com/panaudia/webtransport-go v0.12.1-0.20260821153741-1bc7484acf3f)
+v0.12.0 (built from github.com/panaudia/webtransport-go v0.12.1-0.20260827125926-3306042a4fd2)
 
 MIT
 

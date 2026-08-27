@@ -26,7 +26,7 @@
 # regardless of the host's net.core.rmem_max; without it, it runs on
 # the host's limits and says so at startup (see the runtime stage).
 
-ARG GO_VERSION=1.26.4
+ARG GO_VERSION=1.26.7
 
 # --- build -------------------------------------------------------------
 FROM golang:${GO_VERSION}-trixie AS builder
