@@ -41,6 +41,10 @@ func TestHTTPEndpoints(t *testing.T) {
 		Ready    bool           `json:"ready"`
 		Engine   map[string]any `json:"engine"`
 		Entities []any          `json:"entities"`
+		UDP      struct {
+			RecvBytes int `json:"recv_bytes"`
+			SendBytes int `json:"send_bytes"`
+		} `json:"udp"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 		t.Fatal(err)
@@ -50,6 +54,9 @@ func TestHTTPEndpoints(t *testing.T) {
 	}
 	if _, ok := doc.Engine["Ticks"]; !ok {
 		t.Fatalf("/stats engine counters missing: %v", doc.Engine)
+	}
+	if doc.UDP.RecvBytes <= 0 || doc.UDP.SendBytes <= 0 {
+		t.Fatalf("/stats udp buffers not reported: %+v", doc.UDP)
 	}
 	if rec := get("/nope"); rec.Code != http.StatusNotFound {
 		t.Fatalf("/nope = %d", rec.Code)

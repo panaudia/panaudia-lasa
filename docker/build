@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Build the panaudia-server image from this checkout.
+# Build the panaudia-lasa image (the panaudia-server binary) from this checkout.
 #
 #   docker/build                 # linux/amd64, version from the server/v* git tag
 #   docker/build dev             # explicit version
@@ -10,7 +10,7 @@ set -euo pipefail
 # The version is `git describe --match 'server/v*' --dirty` with the
 # server/ prefix removed (0.3.0 on the tagged commit, 0.3.0-2-gea3c742-dirty
 # past it); it is baked into the binary (-X main.version) and used for
-# the image tag panaudia/panaudia-server:<version>-<arch>. Tag releases
+# the image tag panaudia/panaudia-lasa:<version>-<arch>. Tag releases
 # `git tag server/vX.Y.Z`. Pass --push via BUILD_ARGS to publish, e.g.
 # BUILD_ARGS=--push docker/build.
 
@@ -29,7 +29,7 @@ else
     *)         VERSION="0.0.0-g${DESCRIBE}" ;; # no server/v* tag yet: commit only
   esac
 fi
-IMAGE="panaudia/panaudia-server:${VERSION}-${ARCH}"
+IMAGE="panaudia/panaudia-lasa:${VERSION}-${ARCH}"
 
 echo "Building $IMAGE for $PLATFORM"
 docker buildx build \

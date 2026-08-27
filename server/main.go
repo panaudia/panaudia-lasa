@@ -38,7 +38,9 @@ type app struct {
 	srv      *server.Server
 	wt       *webtransport.Server
 	listener *quic.Listener
-	certHash string // dev-cert serverCertificateHashes value; "" with real certs
+	udpConn  *net.UDPConn // the listener's socket; ours to close (quic.Listen does not own it)
+	udp      udpBuffers   // its buffer sizes as tuned at startup (udpbuf.go)
+	certHash string       // dev-cert serverCertificateHashes value; "" with real certs
 
 	space    string
 	started  time.Time
@@ -100,12 +102,21 @@ func newApp(cfg appConfig) (*app, error) {
 		mixer.Close()
 		return nil, err
 	}
-	l, err := quic.ListenAddr(fmt.Sprintf("%s:%d", cfg.Host, cfg.Port), tlsCfg, &quic.Config{
+	// The UDP socket is ours, not quic-go's: bound and sized before
+	// quic-go wraps it, possibly inherited from udpPrelude — udpbuf.go.
+	udpConn, udp, err := listenUDP(cfg)
+	if err != nil {
+		srv.Close()
+		mixer.Close()
+		return nil, err
+	}
+	l, err := quic.Listen(udpConn, tlsCfg, &quic.Config{
 		EnableDatagrams: true,
 		// WebTransport requires partial-delivery resets on both ends.
 		EnableStreamResetPartialDelivery: true,
 	})
 	if err != nil {
+		_ = udpConn.Close()
 		srv.Close()
 		mixer.Close()
 		return nil, err
@@ -114,6 +125,8 @@ func newApp(cfg appConfig) (*app, error) {
 		mixer: mixer, backend: b, srv: srv,
 		wt:       newWebTransport(srv, tlsCfg),
 		listener: l,
+		udpConn:  udpConn,
+		udp:      udp,
 		certHash: certHash,
 		space:    cfg.SpaceID,
 		started:  time.Now(),
@@ -171,6 +184,7 @@ func (a *app) serve(ctx context.Context) error {
 func (a *app) close() {
 	a.ready.Store(false)
 	_ = a.listener.Close()
+	_ = a.udpConn.Close()
 	_ = a.wt.Close()
 	a.srv.Close()
 	a.mixer.Close()
@@ -196,6 +210,7 @@ func (a *app) shutdown() {
 		slog.Warn("shutdown: not every session finished within the grace period", "grace", shutdownGrace, "err", err)
 	}
 	_ = a.wt.Close()
+	_ = a.udpConn.Close()
 	a.mixer.Close()
 	if a.httpSrv != nil {
 		_ = a.httpSrv.Shutdown(ctx) // last: /healthz stays answerable until the end
@@ -263,6 +278,10 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	// With CAP_NET_ADMIN granted this binds the media socket, sizes it
+	// and re-execs without the capability (udpbuf.go) — before the
+	// logger, so the process that serves is the one that logs.
+	udpPrelude(cfg)
 	slog.SetDefault(newLogger(cfg, os.Stderr))
 	if cfg.LogFormat == "text" {
 		printBanner()
@@ -286,6 +305,7 @@ func main() {
 		"space", cfg.SpaceID, "addr", a.listener.Addr().String(),
 		"order", cfg.Order, "ambiOfferingUpTo", min(cfg.Order, 3), "maxEntities", cfg.MaxEntities,
 		"webtransport", fmt.Sprintf("https://<host>:%d%s", cfg.Port, wtPath))
+	a.udp.log()
 	if a.certHash != "" {
 		slog.Info("panaudia-server: dev cert serverCertificateHashes (sha-256, base64)", "hash", a.certHash)
 	}

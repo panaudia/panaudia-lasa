@@ -1,15 +1,24 @@
 name: image
 
-# Publishes panaudia-server on a release tag of the server module:
+# Publishes the panaudia-lasa image on a release tag of the server module:
 #
 #   git tag server/v0.3.0 && git push origin server/v0.3.0
 #
-# One multi-architecture image (linux/amd64 with static libxsmm,
-# linux/arm64 on the gonum path) under ghcr.io/panaudia/panaudia-server
-# tagged <version> and latest. The version baked into the binary is the
-# same string. GHCR needs no secrets beyond the workflow token; to
-# publish to Docker Hub as well, add a docker/login-action step with
-# DOCKERHUB_USERNAME / DOCKERHUB_TOKEN secrets and a second image name.
+# One multi-architecture image under ghcr.io/panaudia/panaudia-lasa
+# tagged <version> and latest, linux/amd64 and linux/arm64 both with
+# static libxsmm. The version baked into the binary is the same string.
+#
+# Each architecture builds on its own native runner (no QEMU: the
+# emulated arm64 leg was 5x the native one, and libxsmm's compile would
+# have made it worse) and pushes by digest; a final job stitches the
+# two digests into the tagged manifest list. Layer cache lives in the
+# registry (ghcr.io/panaudia/panaudia-lasa-buildcache:<arch>) rather
+# than the GHA cache, which is capped at 10 GB and evicted after seven
+# idle days — release builds are far enough apart that it was always
+# cold. GHCR needs no secrets beyond the workflow token; to publish to
+# Docker Hub as well, add a docker/login-action step with
+# DOCKERHUB_USERNAME / DOCKERHUB_TOKEN secrets and a second image name
+# in the merge job.
 on:
   push:
     tags: ['server/v*']
@@ -23,13 +32,18 @@ permissions:
   contents: read
   packages: write
 
+env:
+  IMAGE: ghcr.io/panaudia/panaudia-lasa
+  CACHE: ghcr.io/panaudia/panaudia-lasa-buildcache
+
 jobs:
-  publish:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: version
-        id: v
+      - id: v
         run: |
           v="${{ github.event.inputs.version }}"
           if [ -z "$v" ]; then
@@ -37,22 +51,70 @@ jobs:
             case "$ref" in server/v*) v="${ref#server/v}" ;; *) v="0.0.0-g$(git rev-parse --short HEAD)" ;; esac
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@v3
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: VERSION=${{ steps.v.outputs.version }}
-          tags: |
-            ghcr.io/panaudia/panaudia-server:${{ steps.v.outputs.version }}
-            ghcr.io/panaudia/panaudia-server:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/${{ matrix.arch }}
+          build-args: VERSION=${{ needs.version.outputs.version }}
+          # Untagged push by digest; the merge job applies the tags.
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.CACHE }}:${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.CACHE }}:${{ matrix.arch }},mode=max
+      - name: export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: create manifest list
+        working-directory: /tmp/digests
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          docker buildx imagetools create \
+            -t "$IMAGE:$v" -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+      - name: inspect
+        run: docker buildx imagetools inspect "$IMAGE:${{ needs.version.outputs.version }}"

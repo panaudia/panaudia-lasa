@@ -38,6 +38,7 @@ func (a *app) httpHandler() http.Handler {
 			Ready:         a.ready.Load(),
 			Engine:        s.Engine,
 			Entities:      s.Entities,
+			UDP:           s.UDP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
@@ -56,4 +57,5 @@ type statsDocument struct {
 	Ready         bool          `json:"ready"`
 	Engine        any           `json:"engine"`
 	Entities      []entityStats `json:"entities"`
+	UDP           udpBuffers    `json:"udp"`
 }

@@ -83,6 +83,40 @@ var configVars = []string{
 	"PANAUDIA_MIXER_GONUM",
 }
 
+// inheritedUDPFDVar is not configuration: it is the handoff from
+// udpPrelude (udpbuf_linux.go) to the re-exec'd process, carrying the
+// fd of the already-bound, already-sized media socket. Read once here
+// (the environment is read in this file only) and removed from the
+// environment so nothing downstream inherits it. Deliberately absent
+// from configVars and .env.example; setting it by hand is unsupported.
+const inheritedUDPFDVar = "PANAUDIA_INHERITED_UDP_FD"
+
+var inheritedUDPFDOnce struct {
+	done bool
+	fd   int
+}
+
+// inheritedUDPFD returns the handed-over socket fd, or -1.
+func inheritedUDPFD() int {
+	if !inheritedUDPFDOnce.done {
+		inheritedUDPFDOnce.done = true
+		inheritedUDPFDOnce.fd = -1
+		if v := os.Getenv(inheritedUDPFDVar); v != "" {
+			_ = os.Unsetenv(inheritedUDPFDVar)
+			if fd, err := strconv.Atoi(v); err == nil && fd >= 0 {
+				inheritedUDPFDOnce.fd = fd
+			}
+		}
+	}
+	return inheritedUDPFDOnce.fd
+}
+
+// environWith is the current environment plus one variable, for the
+// re-exec in udpPrelude.
+func environWith(name, value string) []string {
+	return append(os.Environ(), name+"="+value)
+}
+
 // envSnapshot records which config variables the REAL environment sets,
 // taken before the .env file is loaded so provenance can be reported.
 type envSnapshot map[string]bool

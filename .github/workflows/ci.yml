@@ -42,7 +42,7 @@ jobs:
         run: go test -race $(go list ./... | grep -v '/engine/jitterlab$')
 
   xsmm:
-    # The production x86 GEMM path: static libxsmm at the SHA the
+    # The production GEMM path: static libxsmm at the SHA the
     # Dockerfile pins, then the parity and gemm suites under -tags xsmm.
     name: engine (xsmm)
     runs-on: ubuntu-latest
@@ -94,6 +94,33 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64
           push: false
+          load: true
+          tags: panaudia-lasa:ci
           build-args: VERSION=ci-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: run (three ways)
+        # The image must start without any capability (regression guard
+        # for the +p file cap), and with --cap-add NET_ADMIN — hardened
+        # or not — must force the UDP buffers and drop every capability.
+        run: |
+          set -euo pipefail
+          boot() { # name, docker run flags... -> prints the udp line + caps
+            local name="$1"; shift
+            local id; id=$(docker run -d -e PANAUDIA_ALLOW_UNTICKETED=true -e PANAUDIA_LOG_FORMAT=json "$@" panaudia-lasa:ci)
+            sleep 3
+            echo "== $name"
+            docker inspect "$id" --format 'running={{.State.Running}}' | tee /tmp/state
+            docker logs "$id" 2>&1 | grep 'udp buffers' | tee /tmp/udp
+            docker exec "$id" grep -E '^Cap(Prm|Eff):' /proc/1/status | tee /tmp/caps
+            docker rm -f "$id" >/dev/null
+            grep -q 'running=true' /tmp/state
+          }
+          boot plain
+          grep -q '"level":"WARN"' /tmp/udp
+          boot cap-add --cap-add NET_ADMIN
+          grep -q '"via":"CAP_NET_ADMIN"' /tmp/udp
+          grep -q 'CapPrm:	0000000000000000' /tmp/caps
+          grep -q 'CapEff:	0000000000000000' /tmp/caps
+          boot cap-add-nnp --cap-add NET_ADMIN --security-opt no-new-privileges
+          grep -q '"via":"CAP_NET_ADMIN"' /tmp/udp

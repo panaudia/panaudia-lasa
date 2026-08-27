@@ -21,6 +21,7 @@ import (
 type serverStats struct {
 	Engine   engine.ProcessStats `json:"engine"`
 	Entities []entityStats       `json:"entities"`
+	UDP      udpBuffers          `json:"udp"` // listener socket buffers as tuned at startup
 }
 
 type entityStats struct {
@@ -34,7 +35,7 @@ type entityStats struct {
 }
 
 func (a *app) stats() serverStats {
-	return serverStats{Engine: a.mixer.Stats(), Entities: a.backend.entityStats()}
+	return serverStats{Engine: a.mixer.Stats(), Entities: a.backend.entityStats(), UDP: a.udp}
 }
 
 // encodeErrors sums the encode-error counters of the entity's live

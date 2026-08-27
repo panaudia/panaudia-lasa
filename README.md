@@ -29,7 +29,7 @@ One `Dockerfile` for every target, building from this checkout:
 docker/build                      # linux/amd64, version from the server/v* git tag
 PLATFORM=linux/arm64 docker/build # native on Apple silicon
 docker run --rm -p 4443:4443/udp -e PANAUDIA_ALLOW_UNTICKETED=true \
-  panaudia/panaudia-server:0.3.0-amd64
+  panaudia/panaudia-lasa:0.3.0-amd64
 ```
 
 The version the binary prints and the image is tagged with comes from
@@ -40,10 +40,12 @@ Go build info; anything else reports `dev`.
 The runtime image is `debian:trixie-slim` plus `libopus0` and the
 binary, running as an unprivileged user; about 175 MB, nearly all of
 it the Debian base. It listens on 4443/udp; map it to 443 with
-`-p 443:4443/udp` if you want the conventional port. On amd64 the
-GEMM hot path is static libxsmm, embedded in the binary (the build
-verifies it); on arm64 it is the pure-Go gonum backend, identical in
-output, slower.
+`-p 443:4443/udp` if you want the conventional port. On both
+architectures the GEMM hot path is static libxsmm, embedded in the
+binary (the build verifies it): JIT kernels for the host's ISA on x86,
+NEON on arm64, roughly 10x the pure-Go backend at production shapes.
+The startup log's `GEMM backend` line names the target actually
+selected.
 
 The process stops cleanly on SIGTERM/SIGINT (`docker stop`, an
 orchestrator's rolling restart): it stops accepting, closes every live
@@ -52,6 +54,30 @@ stop from a network failure, waits up to five seconds for their
 departures, then exits 0. A configured certificate pair is re-read when
 the files change, so a renewal on the host or a rotated mounted secret
 takes effect without a restart.
+
+QUIC wants 7 MiB UDP socket buffers; a stock Linux kernel caps an
+unprivileged process at `net.core.rmem_max`, 208 kiB, and that sysctl
+is not namespaced, so a container cannot raise it. The kernel charges
+the buffer per datagram (~2 kiB each regardless of payload), so at the
+default a busy space has roughly 60 ms of queue before a scheduling
+stall drops packets; at 7 MiB, about a second. Two remedies, either is
+enough:
+
+```bash
+# in the container: the image carries cap_net_admin+p on the binary, so
+# granting the capability lets the server bind and size the socket
+# itself, then re-exec with the socket inherited and no capability left
+# in the process that serves (Kubernetes:
+# securityContext.capabilities.add: ["NET_ADMIN"]; fine with
+# runAsNonRoot and allowPrivilegeEscalation: false)
+docker run --cap-add NET_ADMIN ...
+# or on the host, persistently in /etc/sysctl.d/:
+sysctl -w net.core.rmem_max=7500000 net.core.wmem_max=7500000
+```
+
+The startup log reports the sizes in effect (`udp buffers`, a warning
+with both remedies when short), and `/stats` carries them as `udp`.
+Without either remedy the server runs on the host's limits.
 
 Configure with `-e` variables, or mount a `.env` at
 `/opt/panaudia/.env` (the working directory) or anywhere with
@@ -68,7 +94,7 @@ at `/licenses/`.
 
 `.github/workflows/ci.yml` runs on every push and pull request: gofmt,
 vet and `go test -race` for both modules, the engine's gemm and parity
-suites against static libxsmm (`-tags xsmm`, the production x86 path),
+suites against static libxsmm (`-tags xsmm`, the production path),
 and a no-push build of the Dockerfile. `.github/workflows/image.yml`
 publishes on a server release tag:
 
@@ -77,10 +103,14 @@ git tag server/v0.3.0 && git push origin server/v0.3.0
 ```
 
 That produces one multi-architecture image,
-`ghcr.io/panaudia/panaudia-server:0.3.0` (and `:latest`), amd64 with
-libxsmm and arm64 on the gonum path, with the same version baked into
-the binary. `docker/build` remains the local, single-architecture
-equivalent.
+`ghcr.io/panaudia/panaudia-lasa:0.3.0` (and `:latest`), amd64 and
+arm64 both with libxsmm, with the same version baked into the binary.
+Each architecture builds natively on its own runner and pushes by
+digest; a final job stitches the digests into the tagged manifest
+list. The layer cache is kept in the registry
+(`ghcr.io/panaudia/panaudia-lasa-buildcache:<arch>`), so an
+unchanged libxsmm build is never repeated. `docker/build` remains the
+local, single-architecture equivalent.
 
 ## Health and stats
 
@@ -104,7 +134,7 @@ ships no HTTP client of its own.
 ```bash
 docker run --rm -p 4443:4443/udp -p 127.0.0.1:8080:8080 \
   -e PANAUDIA_ALLOW_UNTICKETED=true -e PANAUDIA_HTTP_PORT=8080 \
-  panaudia/panaudia-server:0.3.0-amd64
+  panaudia/panaudia-lasa:0.3.0-amd64
 curl -s localhost:8080/stats
 ```
 
