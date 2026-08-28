@@ -17,6 +17,14 @@ type FrameWriter interface {
 	WriteFrame(opus []byte, sampleTS uint64)
 }
 
+// sinkEncoder is the sink's egress encoder: the production Opus encoder
+// or the codec-free raw-f32 one (SinkCodecRawF32). Both do the full
+// binaural decode and dynamics; only the last step differs.
+type sinkEncoder interface {
+	Encode(ambisonicChannels []float32) ([]byte, error)
+	BeforeDestroy()
+}
+
 // Sink is an entity's audio-out half: the per-listener binaural render
 // target. SetPose may be called from any single goroutine (the network
 // receive path); the render loop reads the latest pose once per tick.
@@ -25,7 +33,7 @@ type Sink struct {
 	id string
 
 	w   FrameWriter
-	out *inout.OpusOutputEncoder
+	out sinkEncoder
 
 	// nullOut, when set, replaces the opus path with a decode-then-
 	// discard output (test/diagnostic parity with the incumbent's

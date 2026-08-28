@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/binary"
 	"math"
 	"sync/atomic"
 
@@ -21,8 +22,13 @@ type Source struct {
 	id string
 
 	jitter  *buffers.JitterBuffer
-	decoder *inout.OpusInputDecoder
+	decoder *inout.OpusInputDecoder // nil under SourceCodecRawF32
 	tone    *inout.SineMonoInput
+	// raw is SourceCodecRawF32: payloads are float32 samples, copied
+	// into rawScratch (the payload aliases a datagram and need not be
+	// 4-byte aligned).
+	raw        bool
+	rawScratch []float32
 
 	ring        poseRing
 	poseScratch [poseRingSize]poseSample // audio-thread scratch
@@ -42,6 +48,13 @@ func (s *Source) WriteOpus(seq uint64, pose *Pose, pkt []byte) {
 		return
 	}
 	if len(pkt) > 0 {
+		if s.raw {
+			s.ingestPCM(s.decodeRaw(pkt))
+			if pose != nil {
+				s.ring.push(seq, s.samplesWritten, *pose)
+			}
+			return
+		}
 		pcm, err := s.decoder.Decode(pkt)
 		if err != nil {
 			// A packet libopus rejects is handled exactly as a lost one:
@@ -79,6 +92,22 @@ func (s *Source) WritePCM(seq uint64, pose *Pose, pcm []float32) {
 	}
 }
 
+// decodeRaw reads a SourceCodecRawF32 payload into rawScratch. A payload
+// that is not a whole number of samples, or longer than a frame, counts
+// as a decode error and is concealed as silence.
+func (s *Source) decodeRaw(pkt []byte) []float32 {
+	n := len(pkt) / 4
+	if len(pkt)%4 != 0 || n > len(s.rawScratch) {
+		s.decodeErrors.Add(1)
+		clear(s.rawScratch)
+		return s.rawScratch
+	}
+	for i := 0; i < n; i++ {
+		s.rawScratch[i] = math.Float32frombits(binary.LittleEndian.Uint32(pkt[4*i:]))
+	}
+	return s.rawScratch[:n]
+}
+
 func (s *Source) ingestPCM(pcm []float32) {
 	s.jitter.Write(pcm)
 	s.samplesWritten += uint64(len(pcm))
@@ -95,7 +124,22 @@ func (s *Source) ingestPCM(pcm []float32) {
 // the ring's bracketing lerp rides over it).
 func (s *Source) Conceal(seq uint64, samples int) {
 	_ = seq
-	if s.tone != nil || s.decoder == nil {
+	if s.tone != nil {
+		return
+	}
+	if s.raw {
+		// No decoder state to advance: silence keeps the sample
+		// accounting aligned.
+		for samples > 0 {
+			n := min(samples, len(s.rawScratch))
+			clear(s.rawScratch[:n])
+			s.jitter.Write(s.rawScratch[:n])
+			s.samplesWritten += uint64(n)
+			samples -= n
+		}
+		return
+	}
+	if s.decoder == nil {
 		return
 	}
 	pcm := s.decoder.ConcealFloat32(samples)

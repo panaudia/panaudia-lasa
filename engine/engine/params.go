@@ -109,7 +109,37 @@ func DefaultChannelParams() ChannelParams {
 }
 
 // SourceConfig configures AddSource.
+// SourceCodec selects how a source's WriteOpus payloads are decoded.
+// The zero value is production Opus.
+type SourceCodec int
+
+const (
+	// SourceCodecOpus decodes mono Opus at 48 kHz (production).
+	SourceCodecOpus SourceCodec = iota
+	// SourceCodecRawF32 takes each payload as little-endian float32
+	// mono samples and conceals loss with silence. No codec in the
+	// path: for capacity harnesses that price the server pipeline
+	// without a decoder in it. Never a wire format.
+	SourceCodecRawF32
+)
+
+// SinkCodec selects a binaural sink's egress encoder. The zero value is
+// production Opus.
+type SinkCodec int
+
+const (
+	// SinkCodecOpus encodes the binaural frame as coupled stereo Opus
+	// at BinauralBitrate (production).
+	SinkCodecOpus SinkCodec = iota
+	// SinkCodecRawF32 hands the binaural frame on as interleaved
+	// float32 bytes: the full decode and dynamics, no codec. For
+	// capacity harnesses; never a wire format.
+	SinkCodecRawF32
+)
+
 type SourceConfig struct {
+	// Codec is how WriteOpus payloads are decoded (default Opus).
+	Codec SourceCodec
 	// InitialPose positions the source until the first pose arrives.
 	InitialPose Pose
 	// InputChannels is the Opus decode channel count for WriteOpus:

@@ -284,7 +284,12 @@ func (m *Mixer) AddSource(id string, cfg SourceConfig) (*Source, error) {
 			Robustness:      robustness,
 			Capacity:        capacity,
 		})
-		src.decoder = inout.NewOpusInputDecoder(cfg.InputChannels)
+		if cfg.Codec == SourceCodecRawF32 {
+			src.raw = true
+			src.rawScratch = make([]float32, FrameSize)
+		} else {
+			src.decoder = inout.NewOpusInputDecoder(cfg.InputChannels)
+		}
 	}
 
 	m.mu.Lock()
@@ -322,9 +327,19 @@ func (m *Mixer) AddSource(id string, cfg SourceConfig) (*Source, error) {
 // AddSink attaches a sink to entity id, creating the entity if needed.
 // Frames start flowing to w on the next ticks.
 func (m *Mixer) AddSink(id string, w FrameWriter) (*Sink, error) {
-	k := &Sink{m: m, id: id, w: w,
-		out: inout.NewConvolverOpusOutputEncoder(
-			binaural.NewConvolverDecoder(m.convolverSet), m.channelCount)}
+	return m.AddSinkCodec(id, w, SinkCodecOpus)
+}
+
+// AddSinkCodec is AddSink with the egress codec chosen (SinkCodecRawF32
+// for codec-free capacity work; AddSink is the Opus default).
+func (m *Mixer) AddSinkCodec(id string, w FrameWriter, codec SinkCodec) (*Sink, error) {
+	dec := binaural.NewConvolverDecoder(m.convolverSet)
+	k := &Sink{m: m, id: id, w: w}
+	if codec == SinkCodecRawF32 {
+		k.out = inout.NewConvolverRawF32OutputEncoder(dec, m.channelCount)
+	} else {
+		k.out = inout.NewConvolverOpusOutputEncoder(dec, m.channelCount)
+	}
 	if err := m.addSink(id, k); err != nil {
 		k.out.BeforeDestroy()
 		return nil, err

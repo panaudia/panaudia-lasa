@@ -37,6 +37,12 @@ type backend struct {
 	srv    *server.Server // set by attach before serving starts
 	wiring *stateWiring   // set at composition, before serving starts
 
+	// Codec hatch: the zero values are production (Opus both ways).
+	// The capacity ceiling harness sets both to RawF32 to run the
+	// composed pipeline with no codec in it (ceiling_test.go).
+	sourceCodec engine.SourceCodec
+	sinkCodec   engine.SinkCodec
+
 	mu       sync.Mutex
 	entities map[string]*entityRec // the conn-map
 }
@@ -152,6 +158,7 @@ func (b *backend) EntityJoined(clientID string, e connect.ResolvedEntity) (serve
 		// criteria A3–A5 (plan/jitter-v4-design.md §14).
 		Quality:    e.Quality,
 		Redundancy: e.Redundancy,
+		Codec:      b.sourceCodec,
 	}
 	src, err := b.mixer.AddSource(e.ID, cfg)
 	if err != nil {
@@ -272,7 +279,7 @@ func (b *backend) StartSink(entityID, format string, w server.SinkWriter) (serve
 	}
 	switch format {
 	case ident.TrackBinaural:
-		sink, err := b.mixer.AddSink(entityID, &sinkBridge{w: w})
+		sink, err := b.mixer.AddSinkCodec(entityID, &sinkBridge{w: w}, b.sinkCodec)
 		if err != nil {
 			return nil, err
 		}

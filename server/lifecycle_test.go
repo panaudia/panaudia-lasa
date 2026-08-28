@@ -33,6 +33,13 @@ func dialTest(t *testing.T, a *app, clientID string, entityIDs ...string) (*clie
 	for i, id := range entityIDs {
 		ents[i] = connect.Entity{ID: id, Name: id}
 	}
+	return dialTestEntities(t, a, clientID, ents)
+}
+
+// dialTestEntities is dialTest with full entity definitions (quality,
+// redundancy, pose).
+func dialTestEntities(t *testing.T, a *app, clientID string, ents []connect.Entity) (*client.Client, error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return client.Dial(ctx, a.listener.Addr().String(), client.Config{

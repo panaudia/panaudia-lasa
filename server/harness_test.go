@@ -17,6 +17,8 @@ import (
 
 	"gopkg.in/hraban/opus.v2"
 
+	"github.com/panaudia/lasa/client"
+	"github.com/panaudia/lasa/connect"
 	"github.com/panaudia/lasa/wire"
 
 	"github.com/panaudia/panaudia-lasa/engine/engine"
@@ -168,8 +170,38 @@ func TestServerAudioLatencyChirp(t *testing.T) {
 	if testing.Short() {
 		t.Skip("latency harness is slow")
 	}
+	chirpLatency(t, connect.Entity{ID: "e-speak", Name: "e-speak"})
+}
+
+// TestServerAudioLatencyChirpDeclarations measures the chirp under the
+// §4.2 declarations the latency doc tabulates, so the doc's rows are
+// measured rather than arithmetic. With redundancy declared the
+// speaker's uplink carries the repeats (the client emits them from the
+// declaration) and the server's ingest floor is provisioned for them.
+func TestServerAudioLatencyChirpDeclarations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("latency harness is slow")
+	}
+	for _, tc := range []struct {
+		name string
+		ent  connect.Entity
+	}{
+		{"redundancy1", connect.Entity{ID: "e-speak", Name: "e-speak", Redundancy: 1}},
+		{"redundancy3", connect.Entity{ID: "e-speak", Name: "e-speak", Redundancy: 3}},
+		{"quality1", connect.Entity{ID: "e-speak", Name: "e-speak", Quality: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) { chirpLatency(t, tc.ent) })
+	}
+}
+
+// chirpLatency runs the chirp harness with the speaker declared as
+// given and logs the mouth-to-ear number; the listener stays at the
+// defaults (the sink half of the declaration is the client's playout
+// buffer, which this harness does not have).
+func chirpLatency(t *testing.T, speakerEnt connect.Entity) {
+	t.Helper()
 	a := startTestApp(t, func(cfg *appConfig) { cfg.Reverb = "none" })
-	speaker, err := dialTest(t, a, "c-speak", "e-speak")
+	speaker, err := dialTestEntities(t, a, "c-speak", []connect.Entity{speakerEnt})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,9 +287,13 @@ func TestServerAudioLatencyChirp(t *testing.T) {
 	dep := a.entityStat(t, "e-speak").Depacketizer
 	ms := func(samples int) float64 { return float64(samples) * 1000.0 / engine.SampleRate }
 	residual := bestLag - fill
-	t.Logf("server mouth-to-ear: %d samples (%.1f ms) = jitter fill %d (%.1f ms) + residual %d (%.1f ms — transport, tick alignment, DSP, double opus)",
-		bestLag, ms(bestLag), fill, ms(fill), residual, ms(residual))
-	t.Logf("ingress: delivered=%d lost=%d skipped=%d gap-events=%d", dep.Delivered, dep.Lost, dep.Skipped, dep.GapEvents)
+	t.Logf("server mouth-to-ear (quality %d, redundancy %d): %d samples (%.1f ms) = jitter fill %d (%.1f ms) + residual %d (%.1f ms — transport, tick alignment, DSP, double opus)",
+		speakerEnt.Quality, speakerEnt.Redundancy, bestLag, ms(bestLag), fill, ms(fill), residual, ms(residual))
+	t.Logf("ingress: delivered=%d recovered=%d lost=%d skipped=%d gap-events=%d malformed=%d",
+		dep.Delivered, dep.Recovered, dep.Lost, dep.Skipped, dep.GapEvents, dep.Malformed)
+	if dep.Malformed > 0 {
+		t.Errorf("server discarded %d uplink packets as malformed", dep.Malformed)
+	}
 
 	// Tripwires — generous, not a spec.
 	if bestLag < 240 || bestLag > 12000 {
@@ -439,5 +475,116 @@ func TestServerSourcePoseCoherence(t *testing.T) {
 	// and possible adaptive time-slips, so ±1200 (25 ms).
 	if skew < -1200 || skew > 1200 {
 		t.Errorf("pose/audio skew %d samples outside ±1200 — jitter alignment broken?", skew)
+	}
+}
+
+// TestServerUplinkRedundancyRepair proves the two ends of the uplink
+// agree on the §5.1 wire: the client's repeat emitter on one side, the
+// server's depacketizer substitution on the other. The speaker frames
+// packets with the client's UplinkRedundancy ring at offset 3 and
+// drops a known set of datagrams before they leave — isolated singles
+// and bursts of 2 and 3, all within the offset — and every drop must
+// come back as `recovered` with nothing declared lost. The same drops
+// without a declaration must all surface as `lost`. (Sending through
+// WritePacket rather than WriteMonoObject is what lets the test drop
+// after framing; the ring is the same code the publisher runs.)
+func TestServerUplinkRedundancyRepair(t *testing.T) {
+	if testing.Short() {
+		t.Skip("harness is slow")
+	}
+	const frames = 400
+	// Drop set: singles every 25 from 40, a burst of 2 at 100–101, a
+	// burst of 3 at 200–202, and 3 more at 300–302. None in the last
+	// 10 (the tail's fate is decided only by later arrivals).
+	dropped := map[uint64]bool{100: true, 101: true, 200: true, 201: true, 202: true, 300: true, 301: true, 302: true}
+	for s := uint64(40); s < frames-10; s += 25 {
+		dropped[s] = true
+	}
+	for _, tc := range []struct {
+		name       string
+		redundancy int
+	}{
+		{"declared3", 3},
+		{"undeclared", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := startTestApp(t, func(cfg *appConfig) { cfg.Reverb = "none" })
+			speaker, err := dialTestEntities(t, a, "c-speak", []connect.Entity{{ID: "e-speak", Name: "e-speak", Redundancy: tc.redundancy}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "speaker live", func() bool { return settled(a, "e-speak") })
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			pub, err := speaker.Entity(ctx, "e-speak")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pub.Redundancy() != tc.redundancy {
+				t.Fatalf("publisher offset %d, want the declared %d", pub.Redundancy(), tc.redundancy)
+			}
+			enc, err := opus.NewEncoder(engine.SampleRate, 1, opus.AppAudio)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ring := client.NewUplinkRedundancy(tc.redundancy)
+			pcm := make([]float32, wire.FrameSamples)
+			opusBuf := make([]byte, 1500)
+			var raw []byte
+			pose := wire.Pose{X: 2}
+			tick := time.NewTicker(5 * time.Millisecond)
+			for seq := uint64(0); seq < frames; seq++ {
+				<-tick.C
+				for i := range pcm {
+					pcm[i] = float32(0.3 * math.Sin(2*math.Pi*440*float64(int(seq)*wire.FrameSamples+i)/engine.SampleRate))
+				}
+				n, err := enc.EncodeFloat32(pcm, opusBuf)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pkt := wire.MonoObjectPacket{Pose: &pose, Audio: opusBuf[:n]}
+				ring.Attach(seq, &pkt)
+				if raw, err = wire.AppendMonoObject(raw[:0], &pkt); err != nil {
+					t.Fatal(err)
+				}
+				if dropped[seq] {
+					continue
+				}
+				if err := pub.WritePacket(seq, raw); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tick.Stop()
+			time.Sleep(200 * time.Millisecond)
+
+			dep := a.entityStat(t, "e-speak").Depacketizer
+			t.Logf("dropped %d of %d: delivered=%d recovered=%d lost=%d skipped=%d gap-events=%d late=%d malformed=%d hist=%v",
+				len(dropped), frames, dep.Delivered, dep.Recovered, dep.Lost, dep.Skipped, dep.GapEvents, dep.Late, dep.Malformed, dep.GapHist)
+			if dep.Malformed > 0 {
+				t.Errorf("%d packets discarded as malformed", dep.Malformed)
+			}
+			// Loopback QUIC can itself lose a datagram, which would show
+			// as an extra recovery (declared) or loss (undeclared); the
+			// assertions allow for that only in the direction it pushes.
+			want := uint64(len(dropped))
+			if tc.redundancy > 0 {
+				if dep.Recovered < want {
+					t.Errorf("recovered %d, want every one of the %d dropped", dep.Recovered, want)
+				}
+				if dep.Lost+dep.Skipped != 0 {
+					t.Errorf("lost=%d skipped=%d: a drop within the offset was not repaired", dep.Lost, dep.Skipped)
+				}
+			} else {
+				if dep.Recovered != 0 {
+					t.Errorf("recovered %d with nothing declared", dep.Recovered)
+				}
+				if dep.Lost+dep.Skipped < want {
+					t.Errorf("lost+skipped %d, want the %d dropped", dep.Lost+dep.Skipped, want)
+				}
+			}
+			if dep.Delivered < frames-want {
+				t.Errorf("delivered %d, want at least %d", dep.Delivered, frames-want)
+			}
+		})
 	}
 }
