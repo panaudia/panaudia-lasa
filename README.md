@@ -144,3 +144,27 @@ QUIC wants large UDP socket buffers; quic-go logs a warning when it
 cannot get them. On Linux hosts raise them once
 (`sysctl -w net.core.rmem_max=7500000 net.core.wmem_max=7500000`), or
 run the container with `--sysctl` if your runtime allows it.
+
+## Logging
+
+The server logs through one `slog` handler at `PANAUDIA_LOG_LEVEL`
+(`info` by default). `PANAUDIA_LOG_SINK` chooses where the stream goes:
+
+- `stderr` (the default): `PANAUDIA_LOG_FORMAT=text` for a terminal,
+  `json` for a collector, one object per line. Docker, Kubernetes and
+  journald all capture this.
+- `cloud-logging`: the same JSON records go to Google Cloud Logging
+  over its API, straight from the process, with nothing written to
+  stderr but delivery failures. Each record is one entry with its level
+  as the severity and `msg` as `message`; attrs and groups render as
+  the json format prints them. On a Compute Engine VM or GKE node this
+  needs no configuration beyond the service account holding
+  `logging.logWriter`: credentials and project come from the metadata
+  server, and entries carry the detected monitored resource. Elsewhere,
+  set `PANAUDIA_LOG_PROJECT` and provide application default
+  credentials. The server pings the API at startup and refuses to start
+  when it is not writable. Entries are batched in memory (a second or a
+  thousand entries, at most 8 MiB in flight); the buffer is flushed on
+  shutdown, and what could not be delivered is counted in `/stats` as
+  `log.errors`. A Go panic or a failure before the sink exists still
+  goes to stderr, so keep that captured too.

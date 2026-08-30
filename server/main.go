@@ -41,6 +41,7 @@ type app struct {
 	udpConn  *net.UDPConn // the listener's socket; ours to close (quic.Listen does not own it)
 	udp      udpBuffers   // its buffer sizes as tuned at startup (udpbuf.go)
 	certHash string       // dev-cert serverCertificateHashes value; "" with real certs
+	log      *logSink     // where the process logs, for /stats; nil (stderr) outside main
 
 	space    string
 	started  time.Time
@@ -282,22 +283,34 @@ func main() {
 	// and re-execs without the capability (udpbuf.go) — before the
 	// logger, so the process that serves is the one that logs.
 	udpPrelude(cfg)
-	slog.SetDefault(newLogger(cfg, os.Stderr))
-	if cfg.LogFormat == "text" {
+	logger, sink, err := newLogger(context.Background(), cfg, os.Stderr)
+	if err != nil {
+		slog.Error("log sink", "err", err)
+		os.Exit(1)
+	}
+	slog.SetDefault(logger)
+	// Every exit from here on flushes the sink first: a remote sink
+	// holds the last second of entries, the ones that say why.
+	exit := func(code int) {
+		sink.close()
+		os.Exit(code)
+	}
+	if cfg.LogFormat == "text" && cfg.LogSink == "stderr" {
 		printBanner()
 	}
 	cfg.logEffective(real, dotEnvPath)
 	a, err := newApp(cfg)
 	if err != nil {
 		slog.Error("start", "err", err)
-		os.Exit(1)
+		exit(1)
 	}
+	a.log = sink
 	go a.statsLoop(time.Duration(cfg.StatsSec) * time.Second)
 	if cfg.HTTPPort > 0 {
 		if err := a.serveHTTP(fmt.Sprintf("%s:%d", cfg.Host, cfg.HTTPPort)); err != nil {
 			slog.Error("start: http endpoints", "err", err)
 			a.close()
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	slog.Info("panaudia-server: listening",
@@ -320,9 +333,10 @@ func main() {
 		slog.Info("panaudia-server: shutting down on signal", "grace", shutdownGrace)
 		a.shutdown()
 		slog.Info("panaudia-server: stopped")
+		sink.close()
 		return
 	}
 	slog.Error("serve", "err", err)
 	a.close()
-	os.Exit(1)
+	exit(1)
 }

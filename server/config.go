@@ -59,12 +59,17 @@ type appConfig struct {
 	TicketKey       ed25519.PublicKey
 	AllowUnticketed bool
 
-	// Logging: one slog handler on stderr, installed by main before
-	// anything else runs. PANAUDIA_LOG_LEVEL is debug|info|warn|error
-	// (default info); PANAUDIA_LOG_FORMAT is text (default, for a
-	// terminal) or json (one object per line, for a log collector).
-	LogLevel  slog.Level
-	LogFormat string
+	// Logging: one slog handler, installed by main before anything else
+	// runs. PANAUDIA_LOG_LEVEL is debug|info|warn|error (default info);
+	// PANAUDIA_LOG_FORMAT is text (default, for a terminal) or json (one
+	// object per line, for a log collector); PANAUDIA_LOG_SINK is stderr
+	// (default) or cloud-logging (Google Cloud Logging over its API,
+	// always structured, logging_cloud.go), with PANAUDIA_LOG_PROJECT
+	// naming the project when the metadata server cannot.
+	LogLevel   slog.Level
+	LogFormat  string
+	LogSink    string
+	LogProject string
 
 	// MixerGonum forces the engine's pure-Go mixing path over the GEMM
 	// backend — PANAUDIA_MIXER_GONUM=true, an A/B and benchmark hatch,
@@ -80,6 +85,7 @@ var configVars = []string{
 	"PANAUDIA_TICKET_KEY", "PANAUDIA_ALLOW_UNTICKETED",
 	"PANAUDIA_ORDER", "PANAUDIA_MAX_ENTITIES", "PANAUDIA_WORKERS", "PANAUDIA_REVERB",
 	"PANAUDIA_STATS_SEC", "PANAUDIA_LOG_LEVEL", "PANAUDIA_LOG_FORMAT",
+	"PANAUDIA_LOG_SINK", "PANAUDIA_LOG_PROJECT",
 	"PANAUDIA_MIXER_GONUM",
 }
 
@@ -173,6 +179,7 @@ func defaultConfig() appConfig {
 		AllowUnticketed: true, // in-process test convenience; the env path (loadConfig) demands an explicit choice
 		LogLevel:        slog.LevelInfo,
 		LogFormat:       "text",
+		LogSink:         "stderr",
 	}
 }
 
@@ -229,6 +236,13 @@ func loadConfig() (appConfig, error) {
 	if cfg.LogFormat != "text" && cfg.LogFormat != "json" {
 		return cfg, fmt.Errorf("PANAUDIA_LOG_FORMAT: want text|json, got %q", cfg.LogFormat)
 	}
+	if v := os.Getenv("PANAUDIA_LOG_SINK"); v != "" {
+		cfg.LogSink = strings.ToLower(v)
+	}
+	if cfg.LogSink != "stderr" && cfg.LogSink != "cloud-logging" {
+		return cfg, fmt.Errorf("PANAUDIA_LOG_SINK: want stderr|cloud-logging, got %q", cfg.LogSink)
+	}
+	cfg.LogProject = os.Getenv("PANAUDIA_LOG_PROJECT")
 	if v := os.Getenv("PANAUDIA_MIXER_GONUM"); v != "" {
 		if cfg.MixerGonum, err = strconv.ParseBool(v); err != nil {
 			return cfg, fmt.Errorf("PANAUDIA_MIXER_GONUM: %w", err)
@@ -295,6 +309,8 @@ func (c appConfig) effective() map[string]string {
 		"PANAUDIA_STATS_SEC":        strconv.Itoa(c.StatsSec),
 		"PANAUDIA_LOG_LEVEL":        strings.ToLower(c.LogLevel.String()),
 		"PANAUDIA_LOG_FORMAT":       c.LogFormat,
+		"PANAUDIA_LOG_SINK":         c.LogSink,
+		"PANAUDIA_LOG_PROJECT":      c.LogProject,
 		"PANAUDIA_MIXER_GONUM":      strconv.FormatBool(c.MixerGonum),
 	}
 }

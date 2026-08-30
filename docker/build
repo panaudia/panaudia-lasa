@@ -6,6 +6,7 @@ set -euo pipefail
 #   docker/build                 # linux/amd64, version from the server/v* git tag
 #   docker/build dev             # explicit version
 #   PLATFORM=linux/arm64 docker/build
+#   TARGET=bench docker/build    # the capacity ceiling harness image, tagged -bench
 #
 # The version is `git describe --match 'server/v*' --dirty` with the
 # server/ prefix removed (0.3.0 on the tagged commit, 0.3.0-2-gea3c742-dirty
@@ -19,6 +20,7 @@ REPO_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 
 PLATFORM="${PLATFORM:-linux/amd64}"
 ARCH="${PLATFORM#linux/}"
+TARGET="${TARGET:-runtime}"
 if [ $# -ge 1 ]; then
   VERSION="$1"
 else
@@ -30,10 +32,14 @@ else
   esac
 fi
 IMAGE="panaudia/panaudia-lasa:${VERSION}-${ARCH}"
+if [ "$TARGET" != "runtime" ]; then
+  IMAGE="${IMAGE}-${TARGET}"
+fi
 
-echo "Building $IMAGE for $PLATFORM"
+echo "Building $IMAGE for $PLATFORM (target $TARGET)"
 docker buildx build \
   --platform "$PLATFORM" \
+  --target "$TARGET" \
   --build-arg "VERSION=$VERSION" \
   -f "$SCRIPT_DIR/Dockerfile" \
   -t "$IMAGE" \
