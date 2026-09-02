@@ -9,8 +9,8 @@ require (
 	github.com/panaudia/lasa v0.1.5
 	github.com/panaudia/moqtransport v0.8.5-lasa.2
 	github.com/panaudia/panaudia-lasa/engine v0.0.0
-	github.com/quic-go/quic-go v0.61.0
-	github.com/quic-go/webtransport-go v0.12.0
+	github.com/quic-go/quic-go v0.62.0
+	github.com/quic-go/webtransport-go v0.13.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
 )
@@ -22,7 +22,7 @@ require (
 	cloud.google.com/go/longrunning v1.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
-	github.com/dunglas/httpsfv v1.1.0 // indirect
+	github.com/dunglas/httpsfv v1.1.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -58,4 +58,4 @@ require (
 
 replace github.com/panaudia/panaudia-lasa/engine => ../engine
 
-replace github.com/quic-go/webtransport-go => github.com/panaudia/webtransport-go v0.12.1-0.20260827125926-3306042a4fd2
+replace github.com/quic-go/webtransport-go => github.com/panaudia/webtransport-go v0.12.1-0.20260901214938-57c0913993d4

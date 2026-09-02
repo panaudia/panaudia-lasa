@@ -18,6 +18,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -52,6 +53,7 @@ type backend struct {
 // Receiver — the stream-ordered ingress consumer.
 type entityRec struct {
 	clientID string
+	joined   time.Time // for the departure log line's duration
 	src      *engine.Source
 	slot     *presence.Slot
 
@@ -166,6 +168,7 @@ func (b *backend) EntityJoined(clientID string, e connect.ResolvedEntity) (serve
 	}
 	rec := &entityRec{
 		clientID:  clientID,
+		joined:    time.Now(),
 		src:       src,
 		home:      home,
 		headFrame: headFrame,
@@ -176,11 +179,15 @@ func (b *backend) EntityJoined(clientID string, e connect.ResolvedEntity) (serve
 	rec.dep = server.NewDepacketizer(rec)
 	b.mu.Lock()
 	b.entities[e.ID] = rec
+	n := len(b.entities)
 	b.mu.Unlock()
 	// The engine now holds the entity: apply the derived profile state
 	// (the admission group's writes landed before this call, and any
 	// space-scoped mute survives from before the entity existed).
 	b.wiring.entityJoined(e.ID)
+	slog.Info("entity joined", "entity", e.ID, "name", e.Name, "client", clientID,
+		"signed", e.Signed, "frame", e.Frame, "dof", rec.dof.Load(),
+		"quality", e.Quality, "redundancy", e.Redundancy, "entities", n)
 	return rec.dep, nil
 }
 
@@ -211,6 +218,7 @@ func (b *backend) EntityLeft(clientID, entityID string) {
 		return
 	}
 	delete(b.entities, entityID)
+	n := len(b.entities)
 	b.mu.Unlock()
 	// RemoveSink covers a sink whose render the shell hasn't stopped
 	// (its subscribers outlive the entity); the later session Stop is
@@ -219,6 +227,12 @@ func (b *backend) EntityLeft(clientID, entityID string) {
 	b.mixer.RemoveSink(entityID)
 	b.mixer.RemoveAmbiSink(entityID, 2)
 	b.mixer.RemoveAmbiSink(entityID, 3)
+	// The entity's ingest story goes out with it: what arrived, what
+	// was lost, what would not decode.
+	slog.Info("entity left", "entity", entityID, "client", clientID,
+		"duration", time.Since(rec.joined).Round(time.Second).String(),
+		"decodeErrors", rec.src.DecodeErrors(), "encodeErrors", rec.encodeErrors(),
+		"depacketizer", rec.dep.Stats(), "entities", n)
 }
 
 // Frame consumes one stream-ordered ingress packet (the Depacketizer's
@@ -270,40 +284,42 @@ func (b *backend) StartSink(entityID, format string, w server.SinkWriter) (serve
 	rec := b.entities[entityID]
 	b.mu.Unlock()
 	if rec == nil {
+		slog.Warn("sink refused: no live entity", "entity", entityID, "format", format)
 		return nil, fmt.Errorf("panaudia-server: no live entity %q", entityID)
 	}
 	if rec.headFrame {
 		// Source-only (profile §6, pinned 2026-08-05): a head-frame
 		// entity has no world position to hear from.
+		slog.Warn("sink refused: head-frame entity is source-only", "entity", entityID, "format", format)
 		return nil, fmt.Errorf("panaudia-server: head-frame entity %q is source-only", entityID)
 	}
+	var (
+		sink poseSink
+		stop func()
+		err  error
+	)
 	switch format {
 	case ident.TrackBinaural:
-		sink, err := b.mixer.AddSinkCodec(entityID, &sinkBridge{w: w}, b.sinkCodec)
-		if err != nil {
-			return nil, err
-		}
-		b.addPoseSink(rec, sink)
-		return &sinkSession{
-			b: b, rec: rec, target: sink,
-			stop: func() { b.mixer.RemoveSink(entityID) },
-		}, nil
+		sink, err = b.mixer.AddSinkCodec(entityID, &sinkBridge{w: w}, b.sinkCodec)
+		stop = func() { b.mixer.RemoveSink(entityID) }
 	case ident.TrackAmbi2, ident.TrackAmbi3:
 		order := 2
 		if format == ident.TrackAmbi3 {
 			order = 3
 		}
-		sink, err := b.mixer.AddAmbiSink(entityID, order, &sinkBridge{w: w})
-		if err != nil {
-			return nil, err
-		}
-		b.addPoseSink(rec, sink)
-		return &sinkSession{
-			b: b, rec: rec, target: sink,
-			stop: func() { b.mixer.RemoveAmbiSink(entityID, order) },
-		}, nil
+		sink, err = b.mixer.AddAmbiSink(entityID, order, &sinkBridge{w: w})
+		stop = func() { b.mixer.RemoveAmbiSink(entityID, order) }
+	default:
+		slog.Warn("sink refused: format not supported", "entity", entityID, "format", format)
+		return nil, fmt.Errorf("panaudia-server: sink format %q not supported", format)
 	}
-	return nil, fmt.Errorf("panaudia-server: sink format %q not supported", format)
+	if err != nil {
+		slog.Warn("sink refused by the engine", "entity", entityID, "format", format, "err", err)
+		return nil, err
+	}
+	b.addPoseSink(rec, sink)
+	slog.Info("sink started", "entity", entityID, "client", rec.clientID, "format", format)
+	return &sinkSession{b: b, rec: rec, target: sink, stop: stop, entity: entityID, format: format, started: time.Now()}, nil
 }
 
 // sinkBridge adapts the engine's FrameWriter to the shell's SinkWriter:
@@ -320,15 +336,20 @@ func (sb *sinkBridge) WriteFrame(opus []byte, sampleTS uint64) {
 // subscriber leaves. Stop is idempotent against the entity having
 // already departed (EntityLeft's engine removals).
 type sinkSession struct {
-	b      *backend
-	rec    *entityRec
-	target poseSink
-	stop   func()
+	b       *backend
+	rec     *entityRec
+	target  poseSink
+	stop    func()
+	entity  string
+	format  string
+	started time.Time
 }
 
 func (ss *sinkSession) Stop() {
 	ss.b.removePoseSink(ss.rec, ss.target)
 	ss.stop()
+	slog.Info("sink stopped", "entity", ss.entity, "client", ss.rec.clientID, "format", ss.format,
+		"duration", time.Since(ss.started).Round(time.Second).String(), "encodeErrors", ss.target.EncodeErrors())
 }
 
 // entitySnapshot is the conn-map's id set — the test-time half of the

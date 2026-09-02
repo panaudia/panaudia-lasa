@@ -32,6 +32,16 @@ func newWebTransport(srv *server.Server, tlsCfg *tls.Config) *webtransport.Serve
 			Handler:         mux,
 			EnableDatagrams: true,
 		},
+		// WebTransport-level flow control (draft-16 §4.4): without these,
+		// no SETTINGS_WT_INITIAL_MAX_* is advertised and a client that
+		// enforces the draft strictly (Safari 26) has zero stream credit —
+		// its createBidirectionalStream blocks forever. Chrome ignores
+		// session-level flow control, which is why it never noticed.
+		Config: &webtransport.Config{
+			MaxIncomingStreams:    256,
+			MaxIncomingUniStreams: 1024,
+			MaxIncomingData:       1 << 30,
+		},
 		// Browsers may negotiate the MoQ ALPN as a WebTransport
 		// application protocol (the SDK offers it with a no-protocol
 		// fallback for browsers that lack the API).

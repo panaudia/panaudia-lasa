@@ -148,7 +148,16 @@ run the container with `--sysctl` if your runtime allows it.
 ## Logging
 
 The server logs through one `slog` handler at `PANAUDIA_LOG_LEVEL`
-(`info` by default). `PANAUDIA_LOG_SINK` chooses where the stream goes:
+(`info` by default). At `info` a session's story is one line per
+event, never one per packet: `entity joined` (entity, name, client,
+signed, frame, dof, quality, redundancy, live entity count), `sink
+started` and `sink stopped` (entity, client, format, duration), and
+`entity left` with the entity's ingest counters (duration, decode and
+encode errors, the depacketizer's delivered/lost/gap breakdown).
+Sink refusals are `warn`. Between events the `stats` line every
+`PANAUDIA_STATS_SEC` seconds (while entities are live) carries the
+engine and ingest aggregates. `PANAUDIA_LOG_SINK` chooses where the
+stream goes:
 
 - `stderr` (the default): `PANAUDIA_LOG_FORMAT=text` for a terminal,
   `json` for a collector, one object per line. Docker, Kubernetes and
