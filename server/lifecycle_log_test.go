@@ -64,6 +64,10 @@ func TestLifecycleLogsJoinAndLeave(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "join of e1+e2", func() bool { return settled(a, "e1", "e2") })
+	// The join line is written after the conn-map insert that settled
+	// observes, so wait for the lines themselves rather than sampling
+	// once (a loaded CI runner sat in that gap, 2026-09-03).
+	waitFor(t, "join log lines", func() bool { return len(logLines(buf, "entity joined")) == 2 })
 	joined := logLines(buf, "entity joined")
 	if len(joined) != 2 {
 		t.Fatalf("entity joined lines = %d, want 2:\n%s", len(joined), buf.String())
