@@ -736,11 +736,14 @@ func (encoder *Encoder) ClearSource() {
 	}
 }
 
+// ClearOutput silences a frame that renders no peers. Both buffers must
+// go: PostMix folds ReverbOutput (the dry premix share plus its wet
+// tail) into Output unconditionally, so a stale premix left over from
+// the last rendered frame would be re-emitted every tick — a 5 ms loop
+// heard as a loud 200 Hz buzz whenever a listener's audible set empties.
 func (encoder *Encoder) ClearOutput() {
-
-	for i := range encoder.Output {
-		encoder.Output[i] = 0
-	}
+	clear(encoder.Output)
+	clear(encoder.ReverbOutput)
 }
 
 func (encoder *Encoder) AddOtherSource(other *Encoder) {
