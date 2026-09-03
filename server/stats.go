@@ -26,8 +26,14 @@ type serverStats struct {
 }
 
 type entityStats struct {
-	ID             string                    `json:"id"`
-	ClientID       string                    `json:"client_id"`
+	ID       string `json:"id"`
+	ClientID string `json:"client_id"`
+	Lockstep int    `json:"lockstep,omitempty"` // the set's size when the entity is a member
+	// LockstepSpread is the set's widest arrival spread so far, in
+	// frames behind the leader (the gather stage releases at 8): the
+	// number behind the any-track release rule, on every real run.
+	LockstepSpread uint64 `json:"lockstep_spread,omitempty"`
+
 	LatencySamples int                       `json:"latency_samples"`
 	DecodeErrors   uint64                    `json:"decode_errors"`
 	EncodeErrors   uint64                    `json:"encode_errors"` // summed over the entity's live sinks
@@ -57,15 +63,20 @@ func (b *backend) entityStats() []entityStats {
 	defer b.mu.Unlock()
 	out := make([]entityStats, 0, len(b.entities))
 	for id, rec := range b.entities {
-		out = append(out, entityStats{
+		es := entityStats{
 			ID:             id,
 			ClientID:       rec.clientID,
 			LatencySamples: rec.src.LatencySamples(),
 			DecodeErrors:   rec.src.DecodeErrors(),
 			EncodeErrors:   rec.encodeErrors(),
 			Jitter:         rec.src.JitterStats(),
-			Depacketizer:   rec.dep.Stats(),
-		})
+			Depacketizer:   rec.depStats(),
+		}
+		if rec.group != nil {
+			es.Lockstep = rec.group.n
+			es.LockstepSpread = rec.group.dep.MaxSpread()
+		}
+		out = append(out, es)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -88,6 +99,14 @@ func (a *app) statsLoop(interval time.Duration) {
 		per := s.Engine.PerTick()
 		var delivered, lost, gaps, decodeErrors, encodeErrors uint64
 		maxFill := 0
+		// Lockstep sets: how many are live (members counted once per
+		// set) and the widest arrival spread any of them has seen, in
+		// frames behind the leader. The release rule fires at 8, so
+		// this is the number plan/lockstep.md's reopen trigger reads
+		// on a real path.
+		var maxSpread uint64
+		setMembers := 0
+		lockstepSets := 0
 		for _, e := range s.Entities {
 			delivered += e.Depacketizer.Delivered
 			lost += e.Depacketizer.Lost + e.Depacketizer.Skipped
@@ -97,13 +116,21 @@ func (a *app) statsLoop(interval time.Duration) {
 			if e.LatencySamples > maxFill {
 				maxFill = e.LatencySamples
 			}
+			if e.Lockstep > 0 {
+				setMembers++
+				if e.LockstepSpread > maxSpread {
+					maxSpread = e.LockstepSpread
+				}
+			}
 		}
+		lockstepSets = countLockstepSets(s.Entities)
 		slog.Info("stats",
 			"entities", len(s.Entities), "ticks", s.Engine.Ticks,
 			slog.Group("perTick", "prep", per.Prep, "in", per.In, "across", per.Across, "out", per.Out),
 			"maxJitterFillSamples", maxFill,
 			slog.Group("ingress", "delivered", delivered, "lost", lost, "gapEvents", gaps, "decodeErrors", decodeErrors),
-			slog.Group("egress", "encodeErrors", encodeErrors))
+			slog.Group("egress", "encodeErrors", encodeErrors),
+			slog.Group("lockstep", "sets", lockstepSets, "members", setMembers, "maxSpreadFrames", maxSpread))
 		if !detail {
 			continue
 		}
@@ -114,6 +141,7 @@ func (a *app) statsLoop(interval time.Duration) {
 			// servo setpoint, wl/wh the measured per-side widths,
 			// rate the live splice rate, trim the macro-trim count.
 			slog.Info("stats: entity", "entity", e.ID, "decodeErrors", e.DecodeErrors, "encodeErrors", e.EncodeErrors,
+				"lockstep", e.Lockstep, "lockstepSpread", e.LockstepSpread,
 				slog.Group("jbuf",
 					"fillMs", float64(j.FillFrames)/48.0, "setpointMs", float64(j.SetpointFrames)/48.0,
 					"widthLowMs", float64(j.WidthLowFrames)/48.0, "widthHighMs", float64(j.WidthHighFrames)/48.0,
@@ -125,4 +153,16 @@ func (a *app) statsLoop(interval time.Duration) {
 					"duplicates", d.Duplicates, "late", d.Late, "gapEvents", d.GapEvents, "gapHist", d.GapHist))
 		}
 	}
+}
+
+// countLockstepSets counts the live sets among the entity stats: the
+// members of one set share a client id.
+func countLockstepSets(ents []entityStats) int {
+	clients := map[string]bool{}
+	for _, e := range ents {
+		if e.Lockstep > 0 {
+			clients[e.ClientID] = true
+		}
+	}
+	return len(clients)
 }

@@ -46,6 +46,49 @@ type backend struct {
 
 	mu       sync.Mutex
 	entities map[string]*entityRec // the conn-map
+	// groups are the live lockstep sets by owning client id
+	// (lasa-core.md §4.2): one group depacketizer and one engine
+	// SourceGroup each, members joining one at a time through
+	// EntityJoined and leaving together through EntityLeft.
+	groups map[string]*groupRec
+}
+
+// groupRec is one lockstep set: the gather stage's receiver, bridging
+// the shell's GroupDepacketizer to the engine's SourceGroup with the
+// same per-member enforcement Frame applies to a single source.
+type groupRec struct {
+	clientID string
+	n        int
+	dep      *server.GroupDepacketizer
+	grp      *engine.SourceGroup
+	recs     []*entityRec // by member index; nil until joined or after left
+	live     int
+	chans    []engine.GroupChannel // receive-goroutine scratch
+}
+
+// Frame is the GroupReceiver: one released frame across every member.
+// Poses pass through each member's dof enforcement and presence and
+// sink fan-out exactly as on a single source; audio and loss go to the
+// set's buffer as one interleaved write.
+func (gr *groupRec) Frame(seq uint64, chans []server.GroupChannel) {
+	for i := range chans {
+		c := &chans[i]
+		ec := &gr.chans[i]
+		*ec = engine.GroupChannel{}
+		rec := gr.recs[i]
+		if rec == nil {
+			continue
+		}
+		if !c.Present {
+			ec.Lost, ec.AudioLikely, ec.Silence = true, c.AudioLikely, c.Silence
+			continue
+		}
+		if c.Pose != nil {
+			ec.Pose = rec.enforcePose(c.Pose)
+		}
+		ec.Audio = c.Audio
+	}
+	gr.grp.WriteFrame(seq, gr.chans)
 }
 
 // entityRec is one live entity: its owning client, its engine halves,
@@ -75,7 +118,13 @@ type entityRec struct {
 	// with a single atomic load (no lock, no alloc).
 	sinks atomic.Pointer[[]poseSink]
 
-	dep *server.Depacketizer // stats surface (S6)
+	dep *server.Depacketizer // stats surface (S6); nil for a lockstep member
+	// group and groupIndex are set for a lockstep member: its set and
+	// its channel in it. The member's ingress goes through the set's
+	// depacketizer, and its stats come from the set's member view.
+	group      *groupRec
+	groupIndex int
+	enforced   engine.Pose // enforcePose's receive-goroutine scratch
 }
 
 // poseSink is what both engine sink kinds offer the backend: the pose
@@ -125,6 +174,7 @@ func newBackend(mixer *engine.Mixer) *backend {
 	return &backend{
 		mixer:    mixer,
 		entities: map[string]*entityRec{},
+		groups:   map[string]*groupRec{},
 	}
 }
 
@@ -162,6 +212,13 @@ func (b *backend) EntityJoined(clientID string, e connect.ResolvedEntity) (serve
 		Redundancy: e.Redundancy,
 		Codec:      b.sourceCodec,
 	}
+	if l := e.Lockstep; l != nil {
+		// A lockstep member (lasa-core.md §4.2): one shared buffer per
+		// connection, provisioned at the set's maxima the resolver
+		// stamped, keyed by the owning client id (one live exercise
+		// per client id, so the key is unique while the set lives).
+		cfg.Group = &engine.GroupSpec{ID: clientID, Index: l.Index, Count: l.Count, Quality: l.Quality, Redundancy: l.Redundancy}
+	}
 	src, err := b.mixer.AddSource(e.ID, cfg)
 	if err != nil {
 		return nil, err
@@ -176,8 +233,24 @@ func (b *backend) EntityJoined(clientID string, e connect.ResolvedEntity) (serve
 	rec.dof.Store(int32(entityDof(&e)))
 	rec.slot = b.srv.Presence().Register(e.ID, headFrame, sourceLoudness(src))
 	rec.slot.UpdatePose(home)
-	rec.dep = server.NewDepacketizer(rec)
+	var handler server.EntityHandler
 	b.mu.Lock()
+	if l := e.Lockstep; l != nil {
+		gr := b.groups[clientID]
+		if gr == nil {
+			gr = &groupRec{clientID: clientID, n: l.Count, grp: src.Group(),
+				recs: make([]*entityRec, l.Count), chans: make([]engine.GroupChannel, l.Count)}
+			gr.dep = server.NewGroupDepacketizer(l.Count, gr)
+			b.groups[clientID] = gr
+		}
+		gr.recs[l.Index] = rec
+		gr.live++
+		rec.group, rec.groupIndex = gr, l.Index
+		handler = gr.dep.Member(l.Index)
+	} else {
+		rec.dep = server.NewDepacketizer(rec)
+		handler = rec.dep
+	}
 	b.entities[e.ID] = rec
 	n := len(b.entities)
 	b.mu.Unlock()
@@ -187,8 +260,8 @@ func (b *backend) EntityJoined(clientID string, e connect.ResolvedEntity) (serve
 	b.wiring.entityJoined(e.ID)
 	slog.Info("entity joined", "entity", e.ID, "name", e.Name, "client", clientID,
 		"signed", e.Signed, "frame", e.Frame, "dof", rec.dof.Load(),
-		"quality", e.Quality, "redundancy", e.Redundancy, "entities", n)
-	return rec.dep, nil
+		"quality", e.Quality, "redundancy", e.Redundancy, "lockstep", e.Lockstep != nil, "entities", n)
+	return handler, nil
 }
 
 // setDof applies a live dof change (profile §6, moderator-writable) to
@@ -218,6 +291,13 @@ func (b *backend) EntityLeft(clientID, entityID string) {
 		return
 	}
 	delete(b.entities, entityID)
+	if gr := rec.group; gr != nil {
+		gr.recs[rec.groupIndex] = nil
+		gr.live--
+		if gr.live == 0 && b.groups[clientID] == gr {
+			delete(b.groups, clientID)
+		}
+	}
 	n := len(b.entities)
 	b.mu.Unlock()
 	// RemoveSink covers a sink whose render the shell hasn't stopped
@@ -232,7 +312,25 @@ func (b *backend) EntityLeft(clientID, entityID string) {
 	slog.Info("entity left", "entity", entityID, "client", clientID,
 		"duration", time.Since(rec.joined).Round(time.Second).String(),
 		"decodeErrors", rec.src.DecodeErrors(), "encodeErrors", rec.encodeErrors(),
-		"depacketizer", rec.dep.Stats(), "entities", n)
+		"depacketizer", rec.depStats(), "lockstepSpread", rec.lockstepSpread(), "entities", n)
+}
+
+// lockstepSpread is the member's set's widest arrival spread in frames
+// behind the leader, 0 for a single source.
+func (rec *entityRec) lockstepSpread() uint64 {
+	if rec.group != nil {
+		return rec.group.dep.MaxSpread()
+	}
+	return 0
+}
+
+// depStats is the entity's ingest counters: its own depacketizer's, or
+// its member view of the set's.
+func (rec *entityRec) depStats() server.DepacketizerStats {
+	if rec.group != nil {
+		return rec.group.dep.MemberStats(rec.groupIndex)
+	}
+	return rec.dep.Stats()
 }
 
 // Frame consumes one stream-ordered ingress packet (the Depacketizer's
@@ -245,22 +343,32 @@ func (b *backend) EntityLeft(clientID, entityID string) {
 func (rec *entityRec) Frame(seq uint64, pose *wire.Pose, audio []byte) {
 	var ep *engine.Pose
 	if pose != nil {
-		if dof := rec.dof.Load(); dof != 0 {
-			wp := *pose
-			if dof == 3 {
-				wp.X, wp.Y, wp.Z = rec.home.X, rec.home.Y, rec.home.Z
-			}
-			p := enginePose(wp)
-			ep = &p
-			rec.slot.UpdatePose(wp)
-			if l := rec.sinks.Load(); l != nil {
-				for _, k := range *l {
-					k.SetPose(p)
-				}
-			}
-		}
+		ep = rec.enforcePose(pose)
 	}
 	rec.src.WriteOpus(seq, ep, audio)
+}
+
+// enforcePose applies dof at ingest and fans the enforced pose out to
+// the presence slot and the sink slots. nil when dof 0 discards it.
+// The returned pose is receive-goroutine scratch, valid until the next
+// call.
+func (rec *entityRec) enforcePose(pose *wire.Pose) *engine.Pose {
+	dof := rec.dof.Load()
+	if dof == 0 {
+		return nil
+	}
+	wp := *pose
+	if dof == 3 {
+		wp.X, wp.Y, wp.Z = rec.home.X, rec.home.Y, rec.home.Z
+	}
+	rec.enforced = enginePose(wp)
+	rec.slot.UpdatePose(wp)
+	if l := rec.sinks.Load(); l != nil {
+		for _, k := range *l {
+			k.SetPose(rec.enforced)
+		}
+	}
+	return &rec.enforced
 }
 
 // Lost consumes a provable-loss declaration: conceal one frame's worth

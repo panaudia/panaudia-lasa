@@ -34,10 +34,14 @@ type Source struct {
 	poseScratch [poseRingSize]poseSample // audio-thread scratch
 
 	samplesWritten uint64 // writer-goroutine only: stream domain of the ring
-	loudness       atomic.Uint32
-	loudEMA        float32 // audio-thread-only EMA state
-	initialPose    Pose
-	decodeErrors   atomic.Uint64
+	// group is set for a lockstep member: the shared buffer and the
+	// member's channel in it. jitter is nil on a member.
+	group        *SourceGroup
+	groupIndex   int
+	loudness     atomic.Uint32
+	loudEMA      float32 // audio-thread-only EMA state
+	initialPose  Pose
+	decodeErrors atomic.Uint64
 }
 
 // WriteOpus ingests one packet: pose (nil = pose decimated) and Opus
@@ -48,29 +52,44 @@ func (s *Source) WriteOpus(seq uint64, pose *Pose, pkt []byte) {
 		return
 	}
 	if len(pkt) > 0 {
-		if s.raw {
-			s.ingestPCM(s.decodeRaw(pkt))
-			if pose != nil {
-				s.ring.push(seq, s.samplesWritten, *pose)
-			}
-			return
-		}
-		pcm, err := s.decoder.Decode(pkt)
-		if err != nil {
-			// A packet libopus rejects is handled exactly as a lost one:
-			// concealed for a frame so the sample accounting (and so the
-			// pose ring's alignment) advances as the sender's timeline
-			// did, and counted for diagnostics. Never a panic — the
-			// bytes came from a client.
-			s.decodeErrors.Add(1)
-			pcm = s.decoder.ConcealFloat32(FrameSize)
-		}
-		s.ingestPCM(pcm)
+		s.ingestPCM(s.decodePacket(pkt))
 	}
 	if pose != nil {
 		s.ring.push(seq, s.samplesWritten, *pose)
 	}
 }
+
+// decodePacket turns one payload into this source's PCM, raw or Opus.
+// A packet the decoder rejects is handled exactly as a lost one:
+// concealed for a frame so the sample accounting (and so the pose
+// ring's alignment) advances as the sender's timeline did, and counted
+// for diagnostics. Never a panic — the bytes came from a client. The
+// returned slice aliases decoder or scratch storage.
+func (s *Source) decodePacket(pkt []byte) []float32 {
+	if s.raw {
+		return s.decodeRaw(pkt)
+	}
+	pcm, err := s.decoder.Decode(pkt)
+	if err != nil {
+		s.decodeErrors.Add(1)
+		pcm = s.decoder.ConcealFloat32(FrameSize)
+	}
+	return pcm
+}
+
+// concealPCM produces samples of concealment for one lost frame:
+// decoder PLC, or silence on the raw path.
+func (s *Source) concealPCM(samples int) []float32 {
+	if s.raw {
+		n := min(samples, len(s.rawScratch))
+		clear(s.rawScratch[:n])
+		return s.rawScratch[:n]
+	}
+	return s.decoder.ConcealFloat32(samples)
+}
+
+// Group returns the lockstep set this source belongs to, or nil.
+func (s *Source) Group() *SourceGroup { return s.group }
 
 // DecodeErrors counts packets the Opus decoder rejected (each concealed
 // as a lost frame). Safe from any goroutine.
@@ -182,6 +201,9 @@ func (s *Source) updateRenderLoudness(frame []float32, gain float64) {
 // latency_test.go for the measured total). Safe from any goroutine.
 // Tone sources report 0.
 func (s *Source) LatencySamples() int {
+	if s.group != nil {
+		return s.group.LatencySamples()
+	}
 	if s.jitter == nil {
 		return 0
 	}
@@ -194,6 +216,9 @@ func (s *Source) LatencySamples() int {
 // LatencySamples headline number. Safe from any goroutine. Tone
 // sources report the zero value.
 func (s *Source) JitterStats() buffers.JitterBufferStats {
+	if s.group != nil {
+		return s.group.jitter.Snapshot()
+	}
 	if s.jitter == nil {
 		return buffers.JitterBufferStats{}
 	}
@@ -210,8 +235,16 @@ func (s *Source) readFrame(dst []float32) (Pose, bool) {
 		s.tone.ReadMono(dst)
 		return s.initialPose, true
 	}
-	s.jitter.Read(dst)
-	L := uint64(s.jitter.StreamReadPos())
+	var L uint64
+	if g := s.group; g != nil {
+		// The set's frame was read once in prep; take this member's
+		// channel from it.
+		g.channel(s.groupIndex, dst)
+		L = g.readPos
+	} else {
+		s.jitter.Read(dst)
+		L = uint64(s.jitter.StreamReadPos())
+	}
 	if L == 0 {
 		// Still warm-starting: nothing has played, hold the initial pose.
 		return s.initialPose, true

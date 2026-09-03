@@ -34,7 +34,11 @@ var (
 	ErrDuplicateSource = errors.New("engine: entity already has a source")
 	ErrDuplicateSink   = errors.New("engine: entity already has a sink")
 	ErrFull            = errors.New("engine: entity capacity reached")
-	ErrUnknownEntity   = errors.New("engine: unknown entity id")
+	// ErrBadGroup rejects a lockstep member whose GroupSpec is
+	// inconsistent: an index outside the set, a set smaller than two,
+	// or a count that disagrees with the set already created.
+	ErrBadGroup      = errors.New("engine: inconsistent lockstep group")
+	ErrUnknownEntity = errors.New("engine: unknown entity id")
 )
 
 // entity is one participant: an optional source (audio in) and an
@@ -86,11 +90,15 @@ type Mixer struct {
 	reg         map[string]*regEntry
 	entityCount int
 	closed      bool
+	// groupReg is the control-plane view of the lockstep sets, by set
+	// id; groups is the audio-thread view read once per tick in prep.
+	groupReg map[string]*SourceGroup
 
 	changes chan func()
 
 	// Audio-thread state.
 	ents           map[string]*entity
+	groups         map[string]*SourceGroup
 	slots          []*entity
 	sourceEntities []*entity
 	allEnts        []*entity // per-tick phase scratch (chunked dispatch)
@@ -264,9 +272,38 @@ func (m *Mixer) AddSource(id string, cfg SourceConfig) (*Source, error) {
 	cfg.applyDefaults()
 
 	src := &Source{m: m, id: id, initialPose: cfg.InitialPose}
-	if cfg.TestTone > 0 {
+	var group *SourceGroup
+	switch {
+	case cfg.TestTone > 0:
 		src.tone = inout.NewSineMonoInput(cfg.TestTone, common.SAMPLE_RATE, common.FRAME_SIZE)
-	} else {
+	case cfg.Group != nil:
+		// A lockstep member: no buffer of its own, a decoder of its
+		// own, and a channel in the set's buffer. The set is created
+		// by its first member and provisioned at the set's maxima.
+		if cfg.Group.Index < 0 || cfg.Group.Index >= cfg.Group.Count || cfg.Group.Count < 2 {
+			return nil, ErrBadGroup
+		}
+		m.mu.Lock()
+		if m.groupReg == nil {
+			m.groupReg = map[string]*SourceGroup{}
+		}
+		group = m.groupReg[cfg.Group.ID]
+		if group == nil {
+			group = newSourceGroup(m, cfg.Group, cfg.JitterWriterFrame, cfg.JitterReaderFrame)
+			m.groupReg[cfg.Group.ID] = group
+		} else if group.n != cfg.Group.Count {
+			m.mu.Unlock()
+			return nil, ErrBadGroup
+		}
+		m.mu.Unlock()
+		src.group, src.groupIndex = group, cfg.Group.Index
+		if cfg.Codec == SourceCodecRawF32 {
+			src.raw = true
+			src.rawScratch = make([]float32, FrameSize)
+		} else {
+			src.decoder = inout.NewOpusInputDecoder(cfg.InputChannels)
+		}
+	default:
 		// The declared floors compose by max (design §8): the quality
 		// level's floor and the FEC floor derived from the declared
 		// maximum redundancy offset. Both are provisioned before the
@@ -313,12 +350,21 @@ func (m *Mixer) AddSource(id string, cfg SourceConfig) (*Source, error) {
 	}
 	re.src = src
 	m.mu.Unlock()
+	if group != nil {
+		group.join(src, cfg.Group.Index)
+	}
 
 	m.enqueue(func() {
 		e := m.ensureEntity(id)
 		e.src = src
 		e.enc.SetPosition(cfg.InitialPose.position())
 		e.enc.SetHeadFrameSource(cfg.HeadFrame)
+		if group != nil {
+			if m.groups == nil {
+				m.groups = map[string]*SourceGroup{}
+			}
+			m.groups[group.id] = group
+		}
 		m.markAudibleDirty()
 	})
 	return src, nil
@@ -417,6 +463,14 @@ func (m *Mixer) RemoveSource(id string) {
 		e := m.ents[id]
 		if e == nil {
 			return
+		}
+		if g := e.src.group; g != nil && g.leave(e.src.groupIndex) {
+			delete(m.groups, g.id)
+			m.mu.Lock()
+			if m.groupReg[g.id] == g {
+				delete(m.groupReg, g.id)
+			}
+			m.mu.Unlock()
 		}
 		e.src = nil
 		if e.sink == nil && len(e.ambiSinks) == 0 {

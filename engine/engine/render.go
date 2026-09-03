@@ -179,6 +179,11 @@ func (m *Mixer) Process() {
 	t1 := time.Now()
 	m.counters.changes.Add(int64(t1.Sub(t0)))
 
+	// Lockstep sets read their one N-channel frame here, before the
+	// parallel In phase, so every member's readFrame finds it ready.
+	for _, g := range m.groups {
+		g.read()
+	}
 	m.sourceEntities = m.sourceEntities[:0]
 	m.allEnts = m.allEnts[:0]
 	m.sinkEnts = m.sinkEnts[:0]

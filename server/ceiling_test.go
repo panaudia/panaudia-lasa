@@ -215,11 +215,17 @@ func (w *ceilingFeedWorker) run(stop <-chan struct{}) {
 	}
 }
 
-func (f *ceilingFeeder) add(e *ceilingEntity) {
+func (f *ceilingFeeder) add(e *ceilingEntity) { f.addSet([]*ceilingEntity{e}) }
+
+// addSet places a lockstep set's members on ONE worker: the group
+// depacketizer is single-writer by the one-connection rule, and one
+// worker advancing every member once per tick is what keeps their
+// seqs equal, as the bridge's encode pump does.
+func (f *ceilingFeeder) addSet(set []*ceilingEntity) {
 	w := f.workers[f.next%len(f.workers)]
 	f.next++
 	w.mu.Lock()
-	w.ents = append(w.ents, e)
+	w.ents = append(w.ents, set...)
 	w.mu.Unlock()
 }
 
@@ -271,13 +277,26 @@ func (r ceilingRow) String() string {
 
 // TestCeilingCodecFree: the render and buffers alone, both codecs
 // swapped for raw float32.
-func TestCeilingCodecFree(t *testing.T) { runCeiling(t, false) }
+func TestCeilingCodecFree(t *testing.T) { runCeiling(t, false, 0) }
 
 // TestCeilingOpus: the production codecs in — mono Opus decode per
 // packet at ingest, coupled-stereo Opus encode per sink frame.
-func TestCeilingOpus(t *testing.T) { runCeiling(t, true) }
+func TestCeilingOpus(t *testing.T) { runCeiling(t, true, 0) }
 
-func runCeiling(t *testing.T, useOpus bool) {
+// ceilingSet is the lockstep variants' set size: every step in the
+// ramp is a multiple of it, so every set is complete.
+const ceilingSet = 5
+
+// TestCeilingCodecFreeLockstep / TestCeilingOpusLockstep: the same
+// ramp with the entities admitted as lockstep sets of ceilingSet
+// (lasa-core.md §4.2), so each set's ingest is one group depacketizer
+// releasing N-channel frames into one shared jitter buffer, read once
+// per tick in prep. Compared against the independent rows at the same
+// N, the difference is lockstep's capacity price (plan/lockstep.md).
+func TestCeilingCodecFreeLockstep(t *testing.T) { runCeiling(t, false, ceilingSet) }
+func TestCeilingOpusLockstep(t *testing.T)      { runCeiling(t, true, ceilingSet) }
+
+func runCeiling(t *testing.T, useOpus bool, setSize int) {
 	if testing.Short() {
 		t.Skip("ceiling harness is slow")
 	}
@@ -287,6 +306,9 @@ func runCeiling(t *testing.T, useOpus bool) {
 	variant := "codec-free"
 	if useOpus {
 		variant = "opus"
+	}
+	if setSize > 0 {
+		variant += fmt.Sprintf(" lockstep%d", setSize)
 	}
 	steps := []int{50, 75, 100, 125, 150, 175, 200, 250, 300}
 	maxN := steps[len(steps)-1]
@@ -316,11 +338,19 @@ func runCeiling(t *testing.T, useOpus bool) {
 
 	feeder := newCeilingFeeder()
 	var ents []*ceilingEntity
+	// clientOf is the entity's owning client: its own for independent
+	// entities, its set's for lockstep members.
+	clientOf := func(i int, id string) string {
+		if setSize > 0 {
+			return fmt.Sprintf("c-set-%03d", i/setSize)
+		}
+		return "c-" + id
+	}
 	defer func() {
 		feeder.close()
-		for _, e := range ents {
+		for i, e := range ents {
 			e.sess.Stop()
-			a.backend.EntityLeft("c-"+e.id, e.id)
+			a.backend.EntityLeft(clientOf(i, e.id), e.id)
 		}
 		waitFor(t, "all swept", func() bool { return settled(a) })
 	}()
@@ -329,9 +359,14 @@ func runCeiling(t *testing.T, useOpus bool) {
 	var rows []ceilingRow
 	ceiling := 0
 	for _, n := range steps {
+		var set []*ceilingEntity
 		for i := len(ents); i < n; i++ {
 			id := fmt.Sprintf("e-%03d", i)
-			h, err := a.backend.EntityJoined("c-"+id, connect.ResolvedEntity{Entity: connect.Entity{ID: id, Name: id}})
+			re := connect.ResolvedEntity{Entity: connect.Entity{ID: id, Name: id}}
+			if setSize > 0 {
+				re.Lockstep = &connect.LockstepMember{Index: i % setSize, Count: setSize}
+			}
+			h, err := a.backend.EntityJoined(clientOf(i, id), re)
 			if err != nil {
 				t.Fatalf("join %s: %v", id, err)
 			}
@@ -348,7 +383,18 @@ func runCeiling(t *testing.T, useOpus bool) {
 			}
 			e := &ceilingEntity{id: id, h: h, sess: sess, w: w, pkts: ceilingPackets(t, i, maxN, useOpus)}
 			ents = append(ents, e)
-			feeder.add(e)
+			if setSize == 0 {
+				feeder.add(e)
+				continue
+			}
+			set = append(set, e)
+			if len(set) == setSize {
+				feeder.addSet(set)
+				set = nil
+			}
+		}
+		if len(set) != 0 {
+			t.Fatalf("step %d is not a multiple of the set size %d", n, setSize)
 		}
 		waitFor(t, fmt.Sprintf("%d admitted", n), func() bool { return settled(a, idsOf(ents)...) })
 		time.Sleep(500 * time.Millisecond) // buffers fill, audibility settles

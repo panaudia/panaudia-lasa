@@ -137,7 +137,25 @@ const (
 	SinkCodecRawF32
 )
 
+// GroupSpec places a source in a lockstep set (lasa-core.md §4.2,
+// plan/lockstep.md §4.5): the set's id, this member's index and the
+// set's size, and the set's maximum quality and redundancy, which
+// provision the one shared jitter buffer. The mixer creates the group
+// on the first member and frees it with the last.
+type GroupSpec struct {
+	ID         string
+	Index      int
+	Count      int
+	Quality    int
+	Redundancy int
+}
+
 type SourceConfig struct {
+	// Group, when set, makes this source a member of a lockstep set.
+	// Quality and Redundancy below are then ignored in favour of the
+	// set's maxima, and WriteOpus/Conceal are never called on the
+	// member: the set's SourceGroup takes whole frames instead.
+	Group *GroupSpec
 	// Codec is how WriteOpus payloads are decoded (default Opus).
 	Codec SourceCodec
 	// InitialPose positions the source until the first pose arrives.
