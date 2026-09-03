@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0
 	cloud.google.com/go/logging v1.19.1
 	github.com/joho/godotenv v1.5.1
-	github.com/panaudia/lasa v0.1.5
+	github.com/panaudia/lasa v0.1.6
 	github.com/panaudia/moqtransport v0.8.5-lasa.2
 	github.com/panaudia/panaudia-lasa/engine v0.0.0
 	github.com/quic-go/quic-go v0.62.0
