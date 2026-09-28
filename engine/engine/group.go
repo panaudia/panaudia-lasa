@@ -80,18 +80,28 @@ func (g *SourceGroup) ID() string { return g.id }
 // Count is the set's size.
 func (g *SourceGroup) Count() int { return g.n }
 
+// join seats a member. A seat already taken is a supersession: the
+// same client reconnected and its successor's AddSource found the set
+// still registered because the predecessor's leave is queued behind
+// it on the audio thread (found 2026-09-22, TestSourceGroupSupersede).
+// The successor displaces the predecessor in the seat without
+// counting it twice, and the predecessor's later leave is a no-op.
 func (g *SourceGroup) join(s *Source, index int) {
 	g.mu.Lock()
+	if g.members[index] == nil {
+		g.live++
+	}
 	g.members[index] = s
-	g.live++
 	g.mu.Unlock()
 }
 
-// leave removes a member and reports whether the set is now empty.
-func (g *SourceGroup) leave(index int) bool {
+// leave removes a member and reports whether the set is now empty. It
+// clears the seat only if s still holds it, so a stale leave from a
+// displaced predecessor cannot evict its successor.
+func (g *SourceGroup) leave(index int, s *Source) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.members[index] != nil {
+	if g.members[index] == s {
 		g.members[index] = nil
 		g.live--
 	}

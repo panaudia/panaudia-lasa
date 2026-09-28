@@ -464,7 +464,7 @@ func (m *Mixer) RemoveSource(id string) {
 		if e == nil {
 			return
 		}
-		if g := e.src.group; g != nil && g.leave(e.src.groupIndex) {
+		if g := e.src.group; g != nil && g.leave(e.src.groupIndex, e.src) {
 			delete(m.groups, g.id)
 			m.mu.Lock()
 			if m.groupReg[g.id] == g {

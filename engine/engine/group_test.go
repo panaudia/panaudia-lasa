@@ -155,3 +155,98 @@ func TestSourceGroupChannels(t *testing.T) {
 		t.Fatal("group registry entry not freed")
 	}
 }
+
+// TestSourceGroupSupersede pins the restart race found 2026-09-22: a
+// lockstep client reconnects under the same client id, so the
+// predecessor's members are removed and the successor's added before
+// the audio thread has run the removals. The successor joins the still
+// registered set, and a stale leave must not evict it, or the new
+// members write zeros forever while their entities look alive.
+func TestSourceGroupSupersede(t *testing.T) {
+	m, err := New(Config{Order: 2, MaxEntities: 4, ReverbPreset: ReverbNone, Workers: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	spec := func(i int) *GroupSpec { return &GroupSpec{ID: "c1", Index: i, Count: 2} }
+	add := func() (*Source, *Source) {
+		a, err := m.AddSource("a", SourceConfig{Codec: SourceCodecRawF32, Group: spec(0)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := m.AddSource("b", SourceConfig{Codec: SourceCodecRawF32, Group: spec(1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a, b
+	}
+	a, b := add()
+	g := a.Group()
+	write := func(g *SourceGroup, seq uint64) {
+		g.WriteFrame(seq, []GroupChannel{
+			{Pose: &Pose{X: 1}, Audio: rawSamples(440, int(seq))},
+			{Pose: &Pose{X: 2}, Audio: rawSamples(1000, int(seq))},
+		})
+	}
+	seq := uint64(0)
+	for ; seq < 30; seq++ {
+		write(g, seq)
+		m.Process()
+	}
+
+	// The predecessor's writer stops before the supersession (the
+	// client died, the server notices later), so the set's buffer has
+	// drained through many ticks by the time the removals arrive.
+	for i := 0; i < 200; i++ {
+		m.Process()
+	}
+
+	// The supersession: both removals queued, both successors added,
+	// no tick in between (the shell's teardown wait returns as soon as
+	// EntityLeft has queued its work).
+	m.RemoveSource("a")
+	m.RemoveSource("b")
+	a2, b2 := add()
+	if a2 == a || b2 == b {
+		t.Fatal("successors are the old sources")
+	}
+	g2 := a2.Group()
+	m.Process()
+
+	fa, fb := make([]float32, FrameSize), make([]float32, FrameSize)
+	var pa, pb Pose
+	for i := 0; i < 100; i++ {
+		write(g2, seq)
+		seq++
+		m.Process()
+		pa, _ = a2.readFrame(fa)
+		pb, _ = b2.readFrame(fb)
+	}
+	if rms(fa) < 0.05 || rms(fb) < 0.05 {
+		t.Fatalf("successor members read silence: rms a %.3f b %.3f", rms(fa), rms(fb))
+	}
+	cands := []float64{440, 1000}
+	if dominant(fa, cands) != 440 || dominant(fb, cands) != 1000 {
+		t.Fatalf("channels crossed: a=%v b=%v", dominant(fa, cands), dominant(fb, cands))
+	}
+	if pa.X != 1 || pb.X != 2 {
+		t.Fatalf("successor poses not pinned: a %.1f b %.1f", pa.X, pb.X)
+	}
+	if _, ok := m.groups["c1"]; !ok {
+		t.Fatal("group not in the mix loop after the supersession")
+	}
+
+	// The successors leave and the set is freed, exactly once.
+	m.RemoveSource("a")
+	m.RemoveSource("b")
+	m.Process()
+	if _, ok := m.groups["c1"]; ok {
+		t.Fatal("group not freed with the successors' departure")
+	}
+	m.mu.Lock()
+	_, reg := m.groupReg["c1"]
+	m.mu.Unlock()
+	if reg {
+		t.Fatal("group registry entry not freed")
+	}
+}
