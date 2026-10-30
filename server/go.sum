@@ -58,8 +58,8 @@ github.com/mengelbart/qlog v0.1.1-0.20260825155429-978b2062c546 h1:RJNLSPO8h0L6+
 github.com/mengelbart/qlog v0.1.1-0.20260825155429-978b2062c546/go.mod h1:nIlGcUugkfDu41B8LKdAwjHQ1NxAF54D9hS2EDOlVyk=
 github.com/panaudia/lasa v0.1.6 h1:kmmzL2B4kt/Y15uUNEdx1fkDj4WxBHZ5VOdcaqCUf3k=
 github.com/panaudia/lasa v0.1.6/go.mod h1:Z4ePtTi8WX0N5TpACQd4zlrosbGVXH3emOMPEj+M2Iw=
-github.com/panaudia/moqtransport v0.8.5-lasa.2 h1:578kb+H+HAu2ARnLLSNsU+fmyA1WcgKaA8NNgGK33dE=
-github.com/panaudia/moqtransport v0.8.5-lasa.2/go.mod h1:4XQtjU7qihJs5w2JDPvpuTRWzkJ4UWs5f+Iktiji/e0=
+github.com/panaudia/moqtransport v0.8.5-lasa.3 h1:vmYRjH9iQ8x/ya+jJvdBp7bhEBn/CbhqYbyMaJO0ReQ=
+github.com/panaudia/moqtransport v0.8.5-lasa.3/go.mod h1:4XQtjU7qihJs5w2JDPvpuTRWzkJ4UWs5f+Iktiji/e0=
 github.com/panaudia/webtransport-go v0.12.1-0.20260901214938-57c0913993d4 h1:Kf7C1hD5BeDLmFGlvw1V0QOfEOjpfNA4a53mUhdTuPA=
 github.com/panaudia/webtransport-go v0.12.1-0.20260901214938-57c0913993d4/go.mod h1:K83X9YHbAqgSLO6ikS6BXCMdWOvqh9JTHALulvb2JVk=
 github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 h1:GFCKgmp0tecUJ0sJuv4pzYCqS9+RGSn52M3FUwPs+uo=
