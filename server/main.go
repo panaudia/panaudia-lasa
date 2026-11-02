@@ -81,6 +81,9 @@ func newApp(cfg appConfig) (*app, error) {
 		SinkAll:        base.SinkAll,
 		ValidRoles:     base.ValidRoles,
 		RulesFor:       base.RulesFor,
+		// The iOS transport gates' server-side arrival record; nil
+		// unless PANAUDIA_ARRIVAL_RECORD_DIR is set.
+		ArrivalRecorder: arrivalRecorder(cfg.ArrivalRecordDir),
 	})
 	if err != nil {
 		mixer.Close()
@@ -339,4 +342,18 @@ func main() {
 	slog.Error("serve", "err", err)
 	a.close()
 	exit(1)
+}
+
+// arrivalRecorder is the server-side arrival record fixture when dir is
+// set, logging flush failures, and nil otherwise.
+func arrivalRecorder(dir string) *server.ArrivalRecorder {
+	if dir == "" {
+		return nil
+	}
+	rec := server.NewArrivalRecorder(dir)
+	rec.Err = func(entityID string, err error) {
+		slog.Warn("arrival record not written", "entity", entityID, "err", err)
+	}
+	slog.Info("arrival record on: one file per entity session", "dir", dir)
+	return rec
 }

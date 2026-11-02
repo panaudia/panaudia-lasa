@@ -75,6 +75,15 @@ type appConfig struct {
 	// backend — PANAUDIA_MIXER_GONUM=true, an A/B and benchmark hatch,
 	// never needed in production.
 	MixerGonum bool
+
+	// ArrivalRecordDir, when set, makes the server write every entity
+	// source's packet arrivals to <dir>/<entity>-<join time>.rec, the
+	// iOS transport gates' server-side arrival record
+	// (lasa-planning/plan/ios-transport-tests.md §5.2) —
+	// PANAUDIA_ARRIVAL_RECORD_DIR. A test fixture: it stamps the wall
+	// clock on the ingress path and holds up to 11.5 MB per entity
+	// session in memory. Empty (the default) in production.
+	ArrivalRecordDir string
 }
 
 // configVars lists every environment variable the server reads, in the
@@ -86,7 +95,7 @@ var configVars = []string{
 	"PANAUDIA_ORDER", "PANAUDIA_MAX_ENTITIES", "PANAUDIA_WORKERS", "PANAUDIA_REVERB",
 	"PANAUDIA_STATS_SEC", "PANAUDIA_LOG_LEVEL", "PANAUDIA_LOG_FORMAT",
 	"PANAUDIA_LOG_SINK", "PANAUDIA_LOG_PROJECT",
-	"PANAUDIA_MIXER_GONUM",
+	"PANAUDIA_MIXER_GONUM", "PANAUDIA_ARRIVAL_RECORD_DIR",
 }
 
 // inheritedUDPFDVar is not configuration: it is the handoff from
@@ -248,6 +257,7 @@ func loadConfig() (appConfig, error) {
 			return cfg, fmt.Errorf("PANAUDIA_MIXER_GONUM: %w", err)
 		}
 	}
+	cfg.ArrivalRecordDir = os.Getenv("PANAUDIA_ARRIVAL_RECORD_DIR")
 	if v := os.Getenv("PANAUDIA_TICKET_KEY"); v != "" {
 		raw, err := base64.StdEncoding.DecodeString(v)
 		if err != nil {
@@ -294,24 +304,25 @@ func (c appConfig) effective() map[string]string {
 		ticketKey = base64.StdEncoding.EncodeToString(c.TicketKey)
 	}
 	return map[string]string{
-		"PANAUDIA_HOST":             c.Host,
-		"PANAUDIA_PORT":             strconv.Itoa(c.Port),
-		"PANAUDIA_HTTP_PORT":        strconv.Itoa(c.HTTPPort),
-		"PANAUDIA_SPACE":            c.SpaceID,
-		"PANAUDIA_CERT":             c.CertFile,
-		"PANAUDIA_KEY":              c.KeyFile,
-		"PANAUDIA_TICKET_KEY":       ticketKey,
-		"PANAUDIA_ALLOW_UNTICKETED": strconv.FormatBool(c.AllowUnticketed),
-		"PANAUDIA_ORDER":            strconv.Itoa(c.Order),
-		"PANAUDIA_MAX_ENTITIES":     strconv.Itoa(c.MaxEntities),
-		"PANAUDIA_WORKERS":          strconv.Itoa(c.Workers),
-		"PANAUDIA_REVERB":           c.Reverb,
-		"PANAUDIA_STATS_SEC":        strconv.Itoa(c.StatsSec),
-		"PANAUDIA_LOG_LEVEL":        strings.ToLower(c.LogLevel.String()),
-		"PANAUDIA_LOG_FORMAT":       c.LogFormat,
-		"PANAUDIA_LOG_SINK":         c.LogSink,
-		"PANAUDIA_LOG_PROJECT":      c.LogProject,
-		"PANAUDIA_MIXER_GONUM":      strconv.FormatBool(c.MixerGonum),
+		"PANAUDIA_HOST":               c.Host,
+		"PANAUDIA_PORT":               strconv.Itoa(c.Port),
+		"PANAUDIA_HTTP_PORT":          strconv.Itoa(c.HTTPPort),
+		"PANAUDIA_SPACE":              c.SpaceID,
+		"PANAUDIA_CERT":               c.CertFile,
+		"PANAUDIA_KEY":                c.KeyFile,
+		"PANAUDIA_TICKET_KEY":         ticketKey,
+		"PANAUDIA_ALLOW_UNTICKETED":   strconv.FormatBool(c.AllowUnticketed),
+		"PANAUDIA_ORDER":              strconv.Itoa(c.Order),
+		"PANAUDIA_MAX_ENTITIES":       strconv.Itoa(c.MaxEntities),
+		"PANAUDIA_WORKERS":            strconv.Itoa(c.Workers),
+		"PANAUDIA_REVERB":             c.Reverb,
+		"PANAUDIA_STATS_SEC":          strconv.Itoa(c.StatsSec),
+		"PANAUDIA_LOG_LEVEL":          strings.ToLower(c.LogLevel.String()),
+		"PANAUDIA_LOG_FORMAT":         c.LogFormat,
+		"PANAUDIA_LOG_SINK":           c.LogSink,
+		"PANAUDIA_LOG_PROJECT":        c.LogProject,
+		"PANAUDIA_MIXER_GONUM":        strconv.FormatBool(c.MixerGonum),
+		"PANAUDIA_ARRIVAL_RECORD_DIR": c.ArrivalRecordDir,
 	}
 }
 
