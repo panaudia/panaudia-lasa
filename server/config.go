@@ -81,7 +81,7 @@ type appConfig struct {
 	// iOS transport gates' server-side arrival record
 	// (lasa-planning/plan/ios-transport-tests.md §5.2) —
 	// PANAUDIA_ARRIVAL_RECORD_DIR. A test fixture: it stamps the wall
-	// clock on the ingress path and holds up to 11.5 MB per entity
+	// clock on the ingress path and holds up to 48 MB per entity
 	// session in memory. Empty (the default) in production.
 	ArrivalRecordDir string
 }
